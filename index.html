@@ -103,6 +103,17 @@
   #c-info { font: clamp(18px, 5vw, 34px)/1.2 var(--display); color: #aaa; min-height: 1.2em; white-space: pre-line; }
   #c-music { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; }
   #c-next { margin-top: 28px; width: min(420px, 100%); font-size: 26px; padding: 18px; }
+
+  /* Countdown */
+  #countdown { position: fixed; inset: 0; background: #000; z-index: 20; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 16px; text-align: center; padding: 24px 16px calc(24px + env(safe-area-inset-bottom)); }
+  #countdown.open { display: flex; }
+  #cd-close { position: absolute; top: calc(10px + env(safe-area-inset-top)); right: 12px; background: #222; width: 46px; height: 46px; padding: 0; border-radius: 50%; font: 22px/1 system-ui; }
+  #cd-spiel { font: 30px/1.1 var(--display); color: var(--blue2); overflow-wrap: anywhere; }
+  #cd-zeit { font: clamp(96px, 34vw, 300px)/1 var(--display); color: #fff; margin: 10px 0; }
+  #cd-zeit.warn { color: #e74c3c; }
+  #cd-presets { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+  #cd-presets button { background: var(--slate); font-size: 18px; padding: 10px 12px; }
+  #cd-start { font-size: 28px; padding: 18px; }
 </style>
 </head>
 <body>
@@ -140,6 +151,12 @@
       <div class="list" id="list-teams"></div>
     </div>
 
+    <div class="card">
+      <h2>Austausch mit dem PC</h2>
+      <p class="muted" style="margin-top:0">Schickt Spiele, Teams, Punkte und alle Protokolle an die PC-Version – z. B. per WhatsApp an dich selbst. Am PC dann bei „📥 VOM HANDY“ einfügen.</p>
+      <button class="b-slate" id="btn-an-pc" style="width:100%">💻 AN DEN PC SENDEN</button>
+    </div>
+
     <button class="big b-green" id="btn-start">LASST DIE SPIELE BEGINNEN</button>
   </section>
 
@@ -163,6 +180,17 @@
   <div id="c-info"></div>
   <div id="c-music"></div>
   <button id="c-next">START</button>
+</div>
+
+<div id="countdown">
+  <button id="cd-close" aria-label="Countdown schließen">✕</button>
+  <div id="cd-spiel"></div>
+  <div id="cd-zeit">1:00</div>
+  <div id="cd-presets"></div>
+  <div class="row" style="width:min(420px,100%)">
+    <button id="cd-start" class="b-green" style="flex:1">▶ START</button>
+    <button id="cd-reset" class="b-slate">↺ RESET</button>
+  </div>
 </div>
 
 <div id="toast"></div>
@@ -671,7 +699,8 @@ function renderGame() {
 
   const akt = S.spiele[S.current], zeit = akt.art === "zeit", last = S.current === S.spiele.length - 1;
   g.append(el("div", { class: "discipline" }, "DISZIPLIN: " + akt.name.toUpperCase()),
-           el("div", { class: "progress" }, `Spiel ${S.current + 1} von ${S.spiele.length} · ${wertungIcon(akt)}${wertungText(akt)}`));
+           el("div", { class: "progress" }, `Spiel ${S.current + 1} von ${S.spiele.length} · ${wertungIcon(akt)}${wertungText(akt)}`),
+           el("button", { class: "b-orange", style: "width:100%;margin-bottom:12px", onclick: openCountdown }, "⏳ COUNTDOWN"));
   if (letztesErgebnis) g.append(ergebnisKarte());
   // Je Team ein Feld für die Punkte bzw. zwei Felder (Minuten und Sekunden) für die Zeit,
   // darunter Stoppuhr (nur bei Zeit) und „nicht geschafft“
@@ -839,6 +868,7 @@ function renderFinal() {
     el("div", { class: "card" }, el("h2", {}, "Endstand"),
       ...rangliste().map(([p, t]) => el("div", { class: "score" }, el("span", {}, `${p}. ${t.name}`), el("b", {}, `${t.points} Pkt`)))),
     el("button", { class: "b-green", style: "width:100%;margin-bottom:10px", onclick: () => { showTab("logs"); showLog(S.logFile); } }, "📜 PROTOKOLL ANSEHEN"),
+    el("button", { class: "b-slate", style: "width:100%;margin-bottom:10px", onclick: anPcSenden }, "💻 AN DEN PC SENDEN"),
     el("button", { class: "b-slate", style: "width:100%;margin-bottom:14px", onclick: korrigieren }, "↩ LETZTES SPIEL KORRIGIEREN"),
     bonusKarte(),
     el("button", { style: "width:100%", onclick: resetTournament }, "🔄 NEUES TURNIER STARTEN"));
@@ -943,12 +973,16 @@ function openCeremony() {
     rank.textContent = platz === 1 ? "🏆 1. PLATZ 🏆" : `${platz}. PLATZ`; rank.style.color = farben[platz];
     info.textContent = ""; music.replaceChildren(); next.hidden = true;
     // Erst Musik starten (Song vom vorherigen Platz endet dabei), dann Spannung aufbauen
+    // Ohne Song gibt es stattdessen Trommelwirbel und Tusch
     const mitSong = teams.find((t) => t.songId);
+    sfxStopp();
     const musikErgebnis = mitSong ? playTrack(mitSong.songId) : stopMusic().then(() => "ok");
+    if (!mitSong) trommelwirbel(SPANNUNG_SEKUNDEN);
     for (let n = SPANNUNG_SEKUNDEN; n > 0; n--) {
       team.className = ""; team.style.color = "#555"; team.textContent = "🥁 " + n;
       await sleep(1000); if (my !== run) return;
     }
+    if (!mitSong) tusch();
     team.textContent = teams.map((t) => t.name).join("\n");
     team.className = platz === 1 ? "winner" : ""; team.style.color = platz === 1 ? farben[1] : "#fff";
     info.textContent = teams.length > 1 ? "GLEICHSTAND!" : "";
@@ -962,7 +996,7 @@ function openCeremony() {
     setNext(pos + 1);
   }
   function close() {
-    run++; C.classList.remove("open"); stopMusic();
+    run++; C.classList.remove("open"); stopMusic(); sfxStopp();
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     wakeLock?.release().catch(() => {}); wakeLock = null;
   }
@@ -970,6 +1004,122 @@ function openCeremony() {
   document.onkeydown = (e) => { if (e.key === "Escape" && C.classList.contains("open")) close(); };
   setNext(0);
 }
+
+// ---------- Sounds: Trommelwirbel, Tusch und Pieptöne – direkt im Browser erzeugt ----------
+let audioCtx = null, sfxNodes = [], rauschen = null;
+function audio() {
+  audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  return audioCtx;
+}
+function sfxStopp() {
+  for (const n of sfxNodes) { try { n.stop(); } catch { /* schon zu Ende */ } }
+  sfxNodes = [];
+}
+// Schnell aufeinanderfolgende Schläge, immer dichter und lauter
+function trommelwirbel(dauer) {
+  const a = audio(), t0 = a.currentTime + 0.02;
+  if (!rauschen) {
+    rauschen = a.createBuffer(1, a.sampleRate, a.sampleRate);
+    const d = rauschen.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  for (let t = 0; t < dauer; t += 0.11 - 0.075 * (t / dauer)) {
+    const src = a.createBufferSource(), filter = a.createBiquadFilter(), g = a.createGain();
+    src.buffer = rauschen; filter.type = "bandpass"; filter.frequency.value = 1800; filter.Q.value = 0.7;
+    g.gain.setValueAtTime(0.4 + 0.9 * (t / dauer), t0 + t); g.gain.exponentialRampToValueAtTime(0.001, t0 + t + 0.06);
+    src.connect(filter).connect(g).connect(a.destination);
+    src.start(t0 + t, Math.random() * 0.8, 0.07); sfxNodes.push(src);
+  }
+}
+// Kurze Fanfare: G – C – E – langes G mit Akkord
+function tusch() {
+  const a = audio(), t0 = a.currentTime + 0.02, noten = [[392, 0.13], [523, 0.13], [659, 0.13], [784, 1.1]];
+  let t = 0;
+  noten.forEach(([f, d], i) => {
+    const letzte = i === noten.length - 1;
+    for (const ton of letzte ? [f, f * 1.26, f * 1.5] : [f]) {
+      const o = a.createOscillator(), filter = a.createBiquadFilter(), g = a.createGain();
+      o.type = "sawtooth"; o.frequency.value = ton; filter.type = "lowpass"; filter.frequency.value = 2400;
+      g.gain.setValueAtTime(0, t0 + t); g.gain.linearRampToValueAtTime(letzte ? 0.12 : 0.18, t0 + t + 0.02);
+      if (letzte) g.gain.exponentialRampToValueAtTime(0.001, t0 + t + d);
+      else { g.gain.setValueAtTime(0.18, t0 + t + d - 0.02); g.gain.linearRampToValueAtTime(0, t0 + t + d); }
+      o.connect(filter).connect(g).connect(a.destination);
+      o.start(t0 + t); o.stop(t0 + t + d + 0.05); sfxNodes.push(o);
+    }
+    t += d;
+  });
+}
+function piep(freq, dauer) {
+  const a = audio(), o = a.createOscillator(), g = a.createGain(), t0 = a.currentTime;
+  o.type = "square"; o.frequency.value = freq;
+  g.gain.setValueAtTime(0.2, t0); g.gain.setValueAtTime(0.2, t0 + dauer - 0.02); g.gain.linearRampToValueAtTime(0, t0 + dauer);
+  o.connect(g).connect(a.destination); o.start(t0); o.stop(t0 + dauer);
+}
+
+// ---------- COUNTDOWN (Vollbild, z.B. „60 Sekunden so viele Becher wie möglich“) ----------
+const CD = { rest: 0, ende: null, piep: null, timer: null };
+function openCountdown() {
+  CD.ende = null; CD.rest = S.countdown || 60;
+  $("#cd-spiel").textContent = S.current < S.spiele.length ? S.spiele[S.current].name.toUpperCase() : "";
+  $("#countdown").classList.add("open");
+  $("#countdown").requestFullscreen?.().catch(() => {});
+  navigator.wakeLock?.request("screen").then((w) => (wakeLock = w)).catch(() => {});
+  cdZeigen();
+}
+function cdZeigen() {
+  const sek = Math.ceil(CD.rest), z = $("#cd-zeit");
+  z.textContent = sek <= 0 ? "ZEIT!" : sek >= 60 ? `${Math.floor(sek / 60)}:${String(sek % 60).padStart(2, "0")}` : String(sek);
+  z.classList.toggle("warn", sek <= 10);
+  $("#cd-start").textContent = CD.ende ? "⏸ PAUSE" : CD.rest > 0 && CD.rest < (S.countdown || 60) ? "▶ WEITER" : "▶ START";
+}
+function cdTick() {
+  if (!CD.ende) return;
+  CD.rest = Math.max(0, (CD.ende - Date.now()) / 1000);
+  const sek = Math.ceil(CD.rest);
+  if (sek > 0 && sek <= 3 && sek !== CD.piep) { CD.piep = sek; piep(880, 0.15); }   // die letzten drei Sekunden
+  if (CD.rest <= 0) { CD.ende = null; piep(1320, 0.9); navigator.vibrate?.([300, 100, 300]); }
+  cdZeigen();
+  if (CD.ende) CD.timer = setTimeout(cdTick, 50);
+}
+function cdStartPause() {
+  audio();   // Ton freischalten – geht auf dem Handy nur direkt nach einem Tippen
+  if (CD.ende) { CD.rest = Math.max(0, (CD.ende - Date.now()) / 1000); CD.ende = null; clearTimeout(CD.timer); cdZeigen(); return; }
+  if (CD.rest <= 0) CD.rest = S.countdown || 60;
+  CD.ende = Date.now() + CD.rest * 1000; CD.piep = null; cdTick();
+}
+function cdSetzen(sek) {
+  S.countdown = Math.max(5, sek); save();   // beim nächsten Mal wieder diese Zeit
+  CD.ende = null; clearTimeout(CD.timer); CD.rest = S.countdown; cdZeigen();
+}
+function closeCountdown() {
+  CD.ende = null; clearTimeout(CD.timer); $("#countdown").classList.remove("open");
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  wakeLock?.release().catch(() => {}); wakeLock = null;
+}
+$("#cd-presets").append(
+  el("button", { onclick: () => cdSetzen((S.countdown || 60) - 10) }, "−10"),
+  ...[[30, "30 S"], [60, "1 MIN"], [90, "1:30"], [120, "2 MIN"], [180, "3 MIN"]].map(([s, txt]) => el("button", { onclick: () => cdSetzen(s) }, txt)),
+  el("button", { onclick: () => cdSetzen((S.countdown || 60) + 10) }, "+10"));
+$("#cd-start").addEventListener("click", cdStartPause);
+$("#cd-reset").addEventListener("click", () => cdSetzen(S.countdown || 60));
+$("#cd-close").addEventListener("click", closeCountdown);
+
+// ---------- Turnier an den PC senden (Text mit #import=..., am PC bei „📥 VOM HANDY“ einfügen) ----------
+async function anPcSenden() {
+  const daten = { v: 1, spiele: S.spiele, current: S.current, draft: S.draft, bonus: S.bonus, logFile: S.logFile, protokolle: S.protokolle,
+    teams: S.teams.map((t) => ({ name: t.name, points: t.points, history: t.history, werte: t.werte || {}, songId: t.songId || "" })) };
+  const gepackt = new Uint8Array(await new Response(new Blob([JSON.stringify(daten)]).stream().pipeThrough(new CompressionStream("deflate"))).arrayBuffer());
+  let bin = ""; for (const b of gepackt) bin += String.fromCharCode(b);
+  const text = `Drinkolympics für den PC (am PC bei „📥 VOM HANDY“ einfügen):\n${REDIRECT_URI}#import=` +
+    btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  if (navigator.share) {
+    try { await navigator.share({ text }); return; } catch (e) { if (e.name === "AbortError") return; }
+  }
+  try { await navigator.clipboard.writeText(text); toast("Kopiert – am PC bei „📥 VOM HANDY“ einfügen", 4000); }
+  catch { prompt("Diesen Text kopieren und an den PC schicken:", text); }
+}
+$("#btn-an-pc").addEventListener("click", anPcSenden);
 
 // ---------- Turnier vom PC übernehmen (QR-Code / Link mit #import=...) ----------
 async function handleImport() {
