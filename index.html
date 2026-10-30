@@ -256,7 +256,9 @@ function spotifyLogout() {
   Object.assign(SP, { access: "", refresh: "", expires: 0, user: "", deviceId: "" }); saveSP(); renderSpotify(); renderSongPicker();
 }
 
-// Abspielgerät: gewähltes Gerät, sonst das aktive, sonst ein Handy, sonst das erste
+// Abspielgerät: gewähltes Gerät (per ID oder Name), sonst das aktive, sonst ein Handy, sonst das erste.
+// Die Spotify-App am Handy taucht nur in der Liste auf, solange sie offen ist – darum merken wir uns
+// das zuletzt benutzte Gerät und versuchen es auch dann, wenn die Liste leer ist.
 let devices = [];
 async function loadDevices() {
   const r = await api("GET", "/me/player/devices");
@@ -265,8 +267,9 @@ async function loadDevices() {
 }
 async function pickDevice() {
   const list = await loadDevices();
-  return list.find((d) => d.id === SP.deviceId) || list.find((d) => d.is_active)
-      || list.find((d) => d.type === "Smartphone") || list[0] || null;
+  return list.find((d) => d.id === SP.deviceId) || (SP.deviceName && list.find((d) => d.name === SP.deviceName))
+      || list.find((d) => d.is_active) || list.find((d) => d.type === "Smartphone") || list[0]
+      || (SP.lastDevice ? { id: SP.lastDevice } : null);
 }
 // Startet einen Song von vorne. Liefert "ok", "nicht-verbunden", "kein-geraet" oder "fehler".
 async function playTrack(id) {
@@ -275,9 +278,28 @@ async function playTrack(id) {
     const dev = await pickDevice();
     if (!dev) return "kein-geraet";
     const r = await api("PUT", "/me/player/play?device_id=" + encodeURIComponent(dev.id), { uris: ["spotify:track:" + id], position_ms: 0 });
+    if (r.ok && SP.lastDevice !== dev.id) { SP.lastDevice = dev.id; saveSP(); }
     return r.ok ? "ok" : r.status === 404 ? "kein-geraet" : "fehler";
   } catch { return "fehler"; }
 }
+// Öffnet die Spotify-App, damit sie als Gerät auftaucht. Kommt man zurück, startet der Song automatisch.
+let nachholen = null;
+function spotifyAppOeffnen(id) {
+  nachholen = id || null;
+  location.href = id ? "spotify:track:" + id : "spotify:";
+}
+document.addEventListener("visibilitychange", async () => {
+  if (document.visibilityState !== "visible" || !spotifyConnected()) return;
+  if ($("#tab-setup")?.classList.contains("active")) renderSpotify();   // Geräteliste auffrischen
+  if (!nachholen) return;
+  const id = nachholen; nachholen = null;
+  for (let i = 0; i < 5; i++) {   // die Spotify-App braucht nach dem Öffnen kurz, bis sie gemeldet ist
+    if ((await playTrack(id)) === "ok") { toast("▶ Musik läuft"); return; }
+    await sleep(1500);
+  }
+  toast(musicProblem("kein-geraet"), 4000);
+});
+const spotifyKnopf = (id) => el("button", { class: "b-spotify", onclick: () => spotifyAppOeffnen(id) }, "📱 SPOTIFY-APP ÖFFNEN");
 async function stopMusic() {
   if (!spotifyConnected()) return;
   try { await api("PUT", "/me/player/pause"); } catch { /* läuft eh nichts */ }
@@ -289,7 +311,8 @@ function musicProblem(res) {
 }
 async function preview(id) {
   const res = await playTrack(id);
-  if (res !== "ok") toast(musicProblem(res), 4000);
+  if (res === "kein-geraet") { if (confirm("Kein Abspielgerät gefunden.\nSpotify-App öffnen? Wenn du zurückkommst, startet der Song.")) spotifyAppOeffnen(id); }
+  else if (res !== "ok") toast(musicProblem(res), 4000);
 }
 
 // ---------- SETUP: Spotify-Karte ----------
@@ -313,18 +336,27 @@ function renderSpotify() {
       el("button", { class: "b-ghost", style: "margin-top:10px;font-size:14px", onclick: () => { if (confirm("Client-ID ändern?")) { SP.clientId = ""; saveSP(); renderSpotify(); } } }, "Client-ID ändern"));
     return;
   }
-  const sel = el("select", { onchange: (e) => { SP.deviceId = e.target.value; saveSP(); } },
+  const sel = el("select", { onchange: (e) => {
+      SP.deviceId = e.target.value; SP.deviceName = devices.find((d) => d.id === SP.deviceId)?.name || ""; saveSP(); } },
     el("option", { value: "" }, "Automatisch (aktives Gerät / dieses Handy)"));
+  const geraeteHinweis = el("div", { hidden: true },
+    el("p", { class: "muted" }, "Gerade ist kein Gerät zu sehen. Spotify meldet das Handy nur, solange die Spotify-App offen ist."),
+    spotifyKnopf());
   const refresh = async () => {
     try { await loadDevices(); } catch { devices = []; }
-    sel.replaceChildren(sel.firstChild, ...devices.map((d) => el("option", { value: d.id, selected: d.id === SP.deviceId }, `${d.name} (${d.type})`)));
-    if (!devices.length) toast("Keine Geräte – öffne kurz die Spotify-App", 3500);
+    const opts = devices.map((d) => el("option", { value: d.id, selected: d.id === SP.deviceId || (!!SP.deviceName && d.name === SP.deviceName) }, `${d.name} (${d.type})`));
+    // gewähltes Gerät, das gerade offline ist, trotzdem anzeigen statt still auf „Automatisch“ zu springen
+    if (SP.deviceId && !devices.some((d) => d.id === SP.deviceId || d.name === SP.deviceName))
+      opts.push(el("option", { value: SP.deviceId, selected: true }, (SP.deviceName || "Gewähltes Gerät") + " (gerade nicht erreichbar)"));
+    sel.replaceChildren(sel.firstChild, ...opts);
+    geraeteHinweis.hidden = devices.length > 0;
   };
   c.append(
     el("div", { class: "status ok" }, "Verbunden" + (SP.user ? " als " + SP.user : "") + " ✅"),
     el("p", { class: "muted", style: "margin:10px 0 6px" }, "Musik abspielen auf:"),
     el("div", { class: "row" }, sel, el("button", { class: "icon-btn b-slate", "aria-label": "Geräte neu laden", onclick: refresh }, "↻")),
-    el("p", { class: "muted" }, "Tipp: Die Spotify-App auf dem Handy vor dem Turnier einmal öffnen, sonst findet Spotify kein Gerät."),
+    el("p", { class: "muted" }, "„Automatisch“ reicht normalerweise: Dann spielt die Musik auf dem Handy. Ein Gerät wählen musst du nur für eine Box oder einen Fernseher."),
+    geraeteHinweis,
     el("div", { class: "row" },
       el("button", { class: "b-slate", style: "flex:1", onclick: () => stopMusic().then(() => toast("Musik gestoppt")) }, "⏹ Musik stopp"),
       el("button", { class: "b-ghost", onclick: () => { if (confirm("Spotify trennen?")) spotifyLogout(); } }, "Trennen")));
@@ -589,6 +621,14 @@ function openCeremony() {
   team.textContent = "Bereit?"; team.className = ""; team.style.color = "#333";
   info.textContent = ""; music.replaceChildren();
   stopMusic();
+  // Vorab prüfen, ob Spotify ein Gerät hat – sonst gleich hier die Spotify-App öffnen lassen
+  if (spotifyConnected() && reihenfolge.some((p) => gruppen[p].some((t) => t.songId))) {
+    loadDevices().then((list) => {
+      if (list.length || run > 0) return;
+      info.textContent = "Spotify findet gerade kein Abspielgerät.\nÖffne kurz die Spotify-App und komm zurück.";
+      music.replaceChildren(spotifyKnopf());
+    }).catch(() => {});
+  }
   C.classList.add("open");
   C.requestFullscreen?.().catch(() => {});
   navigator.wakeLock?.request("screen").then((w) => (wakeLock = w)).catch(() => {});
@@ -619,7 +659,9 @@ function openCeremony() {
       music.append(el("button", { class: "b-spotify", onclick: () => preview(t.songId) }, teams.length > 1 ? "🎵 " + t.name : "🎵 MUSIK NOCHMAL"));
     }
     const res = await musikErgebnis;
-    if (my === run && res !== "ok") info.textContent = (info.textContent ? info.textContent + "\n" : "") + "(" + musicProblem(res) + ")";
+    if (my !== run) return;
+    if (res !== "ok") info.textContent = (info.textContent ? info.textContent + "\n" : "") + "(" + musicProblem(res) + ")";
+    if (res === "kein-geraet") music.append(spotifyKnopf(mitSong.songId));
     setNext(pos + 1);
   }
   function close() {
