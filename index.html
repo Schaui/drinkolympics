@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Drinkolympics</title>
+<meta name="theme-color" content="#1f538d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #1a1a1a; --card: #2b2b2b; --card2: #333; --text: #f2f2f2; --muted: #9a9a9a;
+    --blue: #1f538d; --blue2: #3a7ebf; --green: #27ae60; --spotify: #1DB954; --red: #c0392b; --slate: #34495e;
+    --orange: #d35400; --gold: #ffd700; --silver: #c0c0c0; --bronze: #cd7f32;
+    --display: "Anton", Impact, "Arial Narrow Bold", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+  header { background: var(--blue); padding: calc(14px + env(safe-area-inset-top)) 16px 14px; }
+  header h1 { margin: 0; font: 34px/1 var(--display); letter-spacing: 1px; }
+  main { padding: 12px 16px; max-width: 720px; margin: 0 auto; }
+  .tab { display: none; } .tab.active { display: block; }
+  .card { background: var(--card); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+  .card h2 { margin: 0 0 10px; font: 22px/1 var(--display); letter-spacing: .5px; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row > input { flex: 1; min-width: 0; }
+  input, select { width: 100%; font: inherit; color: var(--text); background: #1f1f1f; border: 1px solid #555; border-radius: 8px; padding: 11px 12px; }
+  input:focus, select:focus { outline: 2px solid var(--blue2); border-color: transparent; }
+  button { font: 18px/1 var(--display); letter-spacing: .5px; color: #fff; background: var(--blue); border: 0; border-radius: 8px; padding: 12px 14px; cursor: pointer; }
+  button:active { filter: brightness(1.2); }
+  button:disabled { opacity: .45; }
+  .b-green { background: var(--green); } .b-spotify { background: var(--spotify); } .b-red { background: var(--red); }
+  .b-slate { background: var(--slate); } .b-orange { background: var(--orange); } .b-ghost { background: transparent; border: 1px solid #555; }
+  .icon-btn { width: 44px; height: 44px; padding: 0; font: 20px/1 system-ui; flex: none; }
+  .big { width: 100%; font-size: 30px; padding: 22px; margin: 6px 0 14px; }
+  .list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .item { display: flex; align-items: center; gap: 8px; background: var(--card2); border-radius: 8px; padding: 6px 6px 6px 12px; }
+  .item .grow { flex: 1; min-width: 0; }
+  .item .name { font: 19px/1.2 var(--display); overflow-wrap: anywhere; }
+  .item .sub { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .empty { color: var(--muted); font-size: 14px; padding: 6px 2px; }
+  .stack > * + * { margin-top: 8px; }
+  .song-chip { display: flex; align-items: center; gap: 8px; background: #1f3a2a; border: 1px solid var(--spotify); border-radius: 8px; padding: 6px 6px 6px 10px; font-size: 14px; }
+  .song-chip .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .results { display: flex; flex-direction: column; gap: 4px; }
+  .result { display: flex; align-items: center; gap: 10px; background: var(--card2); border-radius: 8px; padding: 6px; font: 15px/1.25 system-ui; text-align: left; letter-spacing: 0; }
+  .result img { width: 40px; height: 40px; border-radius: 4px; flex: none; background: #444; }
+  .result span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .result small { color: var(--muted); }
+  .status { font-size: 14px; padding: 8px 10px; border-radius: 8px; background: var(--card2); }
+  .status.ok { background: #1f3a2a; } .status.warn { background: #4d3a16; } .status.err { background: #4d1a1a; }
+  code.copy { display: block; background: #111; padding: 8px 10px; border-radius: 6px; font-size: 13px; overflow-wrap: anywhere; margin: 6px 0; }
+  details summary { cursor: pointer; color: var(--blue2); font-size: 14px; margin-top: 8px; }
+  ol.help { padding-left: 20px; margin: 8px 0; font-size: 14px; } ol.help li { margin: 4px 0; }
+
+  .discipline { font: 34px/1.1 var(--display); color: var(--blue2); text-align: center; margin: 6px 0 4px; overflow-wrap: anywhere; }
+  .progress { text-align: center; color: var(--muted); font-size: 14px; margin-bottom: 12px; }
+  .place-row { display: flex; align-items: center; gap: 10px; background: var(--card2); border-radius: 8px; padding: 8px 8px 8px 12px; margin-bottom: 8px; }
+  .place-row .name { flex: 1; font: 21px/1.2 var(--display); overflow-wrap: anywhere; }
+  .place-row input { width: 84px; text-align: center; font: 22px/1 var(--display); padding: 10px 6px; }
+  .place-row input.bad { outline: 2px solid var(--red); }
+  .score { display: flex; justify-content: space-between; padding: 6px 2px; border-bottom: 1px solid #3a3a3a; font-size: 15px; }
+  .finished { text-align: center; font: 44px/1 var(--display); color: var(--gold); margin: 18px 0 6px; }
+  .saved { text-align: center; color: #2ecc71; margin-bottom: 14px; }
+
+  .log-view { white-space: pre-wrap; font: 13px/1.45 ui-monospace, Consolas, monospace; background: #111; border-radius: 8px; padding: 12px; overflow-x: auto; }
+
+  nav { position: fixed; left: 0; right: 0; bottom: 0; display: flex; background: #111; border-top: 1px solid #333; padding-bottom: env(safe-area-inset-bottom); z-index: 5; }
+  nav button { flex: 1; background: transparent; border-radius: 0; padding: 10px 4px 12px; font: 13px/1.2 system-ui; color: var(--muted); letter-spacing: 0; }
+  nav button span { display: block; font-size: 22px; margin-bottom: 2px; }
+  nav button.active { color: #fff; background: #1d2a3a; }
+
+  #toast { position: fixed; left: 50%; bottom: calc(90px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: #000; color: #fff; padding: 10px 16px; border-radius: 20px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 30; max-width: 90vw; text-align: center; }
+  #toast.show { opacity: 1; }
+
+  /* Siegerehrung */
+  #ceremony { position: fixed; inset: 0; background: #000; z-index: 20; display: none; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px 16px calc(24px + env(safe-area-inset-bottom)); }
+  #ceremony.open { display: flex; }
+  #c-close { position: absolute; top: calc(10px + env(safe-area-inset-top)); right: 12px; background: #222; width: 46px; height: 46px; padding: 0; border-radius: 50%; font: 22px/1 system-ui; }
+  #c-rank { font: clamp(40px, 12vw, 110px)/1 var(--display); }
+  #c-team { font: clamp(44px, 14vw, 130px)/1.05 var(--display); margin: 24px 0 8px; white-space: pre-line; overflow-wrap: anywhere; color: #333; }
+  #c-team.winner { font-size: clamp(54px, 17vw, 160px); }
+  #c-info { font: clamp(18px, 5vw, 34px)/1.2 var(--display); color: #aaa; min-height: 1.2em; white-space: pre-line; }
+  #c-music { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; }
+  #c-next { margin-top: 28px; width: min(420px, 100%); font-size: 26px; padding: 18px; }
+</style>
+</head>
+<body>
+<header><h1>DRINKOLYMPICS</h1></header>
+
+<main>
+  <!-- SETUP -->
+  <section class="tab active" id="tab-setup">
+    <div class="card" id="spotify-card"></div>
+
+    <div class="card">
+      <h2>Spiele</h2>
+      <form class="row" id="form-spiel">
+        <input id="in-spiel" placeholder="Spiel hinzufügen…" autocomplete="off" enterkeyhint="done">
+        <button type="submit">+ Spiel</button>
+      </form>
+      <div class="list" id="list-spiele"></div>
+    </div>
+
+    <div class="card">
+      <h2 id="team-form-title">Team hinzufügen</h2>
+      <form class="stack" id="form-team">
+        <input id="in-team" placeholder="Teamname…" autocomplete="off" enterkeyhint="next">
+        <div id="song-picker"></div>
+        <div class="row">
+          <button type="submit" class="b-green" id="btn-team-save" style="flex:1">+ Team</button>
+          <button type="button" class="b-ghost" id="btn-team-cancel" hidden>Abbrechen</button>
+        </div>
+      </form>
+      <div class="list" id="list-teams"></div>
+    </div>
+
+    <button class="big b-green" id="btn-start">LASST DIE SPIELE BEGINNEN</button>
+  </section>
+
+  <!-- WETTKAMPF -->
+  <section class="tab" id="tab-game"></section>
+
+  <!-- PROTOKOLLE -->
+  <section class="tab" id="tab-logs"></section>
+</main>
+
+<nav>
+  <button data-tab="setup" class="active"><span>⚙️</span>Setup</button>
+  <button data-tab="game"><span>🏆</span>Wettkampf</button>
+  <button data-tab="logs"><span>📜</span>Protokolle</button>
+</nav>
+
+<div id="ceremony">
+  <button id="c-close" aria-label="Siegerehrung schließen">✕</button>
+  <div id="c-rank">DIE SIEGEREHRUNG</div>
+  <div id="c-team">Bereit?</div>
+  <div id="c-info"></div>
+  <div id="c-music"></div>
+  <button id="c-next">START</button>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+const SPANNUNG_SEKUNDEN = 5;   // Countdown bei der Siegerehrung, bevor der Name erscheint
+const STATE_KEY = "drinkolympics_v1";
+const SPOTIFY_KEY = "drinkolympics_spotify_v1";
+const SCOPES = "user-read-playback-state user-modify-playback-state";
+const REDIRECT_URI = location.origin + location.pathname.replace(/index\.html$/, "");
+
+// ---------- kleine Helfer ----------
+const $ = (s) => document.querySelector(s);
+function el(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") e.className = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) e.setAttribute(k, v === true ? "" : v);
+  }
+  for (const k of kids.flat()) if (k != null && k !== false) e.append(k instanceof Node ? k : String(k));
+  return e;
+}
+function toast(msg, ms = 2600) {
+  const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove("show"), ms);
+}
+function load(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
+}
+function store(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { toast("Speichern fehlgeschlagen!"); }
+}
+const sameName = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ---------- Spielstand (bleibt auf dem Handy gespeichert) ----------
+const S = Object.assign({ teams: [], spiele: [], current: 0, draft: {}, logFile: null, protokolle: [] }, load(STATE_KEY, {}));
+function save() { store(STATE_KEY, S); }
+
+// ---------- Spotify ----------
+const SP = Object.assign({ clientId: "", access: "", refresh: "", expires: 0, deviceId: "", user: "" }, load(SPOTIFY_KEY, {}));
+function saveSP() { store(SPOTIFY_KEY, SP); }
+const spotifyConnected = () => !!SP.refresh;
+
+function trackId(link) {
+  const m = /(?:open\.spotify\.com\/(?:intl-[a-z-]+\/)?track\/|spotify:track:)([A-Za-z0-9]{22})/i.exec(link || "");
+  return m ? m[1] : null;
+}
+function randomString(n) {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  return Array.from(crypto.getRandomValues(new Uint8Array(n)), (x) => chars[x % chars.length]).join("");
+}
+async function sha256url(text) {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return btoa(String.fromCharCode(...new Uint8Array(d))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+// Login mit PKCE: kein Geheimnis im Code nötig, nur die Client-ID
+async function spotifyLogin() {
+  const verifier = randomString(64), state = randomString(16);
+  localStorage.setItem("drinkolympics_pkce", JSON.stringify({ verifier, state }));
+  const p = new URLSearchParams({
+    response_type: "code", client_id: SP.clientId, scope: SCOPES, redirect_uri: REDIRECT_URI, state,
+    code_challenge_method: "S256", code_challenge: await sha256url(verifier),
+  });
+  location.href = "https://accounts.spotify.com/authorize?" + p;
+}
+async function tokenRequest(params) {
+  const r = await fetch("https://accounts.spotify.com/api/token", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: SP.clientId, ...params }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error_description || j.error || "Token-Fehler " + r.status);
+  SP.access = j.access_token; SP.expires = Date.now() + (j.expires_in - 60) * 1000;
+  if (j.refresh_token) SP.refresh = j.refresh_token;
+  saveSP();
+}
+async function handleRedirect() {
+  const q = new URLSearchParams(location.search);
+  if (!q.has("code") && !q.has("error")) return;
+  history.replaceState(null, "", REDIRECT_URI);
+  const pkce = JSON.parse(localStorage.getItem("drinkolympics_pkce") || "{}");
+  localStorage.removeItem("drinkolympics_pkce");
+  if (q.has("error")) { toast("Spotify-Login abgebrochen"); return; }
+  if (q.get("state") !== pkce.state) { toast("Spotify-Login ungültig, bitte nochmal"); return; }
+  try {
+    await tokenRequest({ grant_type: "authorization_code", code: q.get("code"), redirect_uri: REDIRECT_URI, code_verifier: pkce.verifier });
+    const me = await api("GET", "/me");
+    if (me.ok) { SP.user = (await me.json()).display_name || ""; saveSP(); }
+    toast("Mit Spotify verbunden ✅");
+  } catch (e) { toast("Spotify-Login fehlgeschlagen: " + e.message, 5000); }
+}
+async function api(method, path, body, retry = true) {
+  if (!spotifyConnected()) throw new Error("nicht verbunden");
+  if (Date.now() > SP.expires) await tokenRequest({ grant_type: "refresh_token", refresh_token: SP.refresh });
+  const r = await fetch("https://api.spotify.com/v1" + path, {
+    method, headers: { Authorization: "Bearer " + SP.access, ...(body ? { "Content-Type": "application/json" } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (r.status === 401 && retry) { SP.expires = 0; return api(method, path, body, false); }
+  return r;
+}
+function spotifyLogout() {
+  Object.assign(SP, { access: "", refresh: "", expires: 0, user: "", deviceId: "" }); saveSP(); renderSpotify(); renderSongPicker();
+}
+
+// Abspielgerät: gewähltes Gerät, sonst das aktive, sonst ein Handy, sonst das erste
+let devices = [];
+async function loadDevices() {
+  const r = await api("GET", "/me/player/devices");
+  devices = r.ok ? (await r.json()).devices || [] : [];
+  return devices;
+}
+async function pickDevice() {
+  const list = await loadDevices();
+  return list.find((d) => d.id === SP.deviceId) || list.find((d) => d.is_active)
+      || list.find((d) => d.type === "Smartphone") || list[0] || null;
+}
+// Startet einen Song von vorne. Liefert "ok", "nicht-verbunden", "kein-geraet" oder "fehler".
+async function playTrack(id) {
+  if (!spotifyConnected()) return "nicht-verbunden";
+  try {
+    const dev = await pickDevice();
+    if (!dev) return "kein-geraet";
+    const r = await api("PUT", "/me/player/play?device_id=" + encodeURIComponent(dev.id), { uris: ["spotify:track:" + id], position_ms: 0 });
+    return r.ok ? "ok" : r.status === 404 ? "kein-geraet" : "fehler";
+  } catch { return "fehler"; }
+}
+async function stopMusic() {
+  if (!spotifyConnected()) return;
+  try { await api("PUT", "/me/player/pause"); } catch { /* läuft eh nichts */ }
+}
+function musicProblem(res) {
+  return res === "kein-geraet" ? "Kein Spotify-Gerät gefunden – öffne kurz die Spotify-App"
+       : res === "nicht-verbunden" ? "Spotify ist nicht verbunden – im Setup verbinden"
+       : "Spotify konnte den Song nicht starten";
+}
+async function preview(id) {
+  const res = await playTrack(id);
+  if (res !== "ok") toast(musicProblem(res), 4000);
+}
+
+// ---------- SETUP: Spotify-Karte ----------
+function renderSpotify() {
+  const c = $("#spotify-card"); c.replaceChildren(el("h2", {}, "Spotify"));
+  if (!SP.clientId) {
+    c.append(
+      el("p", { class: "muted" }, "Einmalig einrichten: Trag die Client-ID deiner Spotify-App ein."),
+      el("form", { class: "row", onsubmit: (e) => { e.preventDefault(); const v = $("#in-client").value.trim();
+          if (!/^[0-9a-f]{32}$/i.test(v)) { toast("Die Client-ID hat 32 Zeichen (0-9, a-f)"); return; }
+          SP.clientId = v; saveSP(); renderSpotify(); } },
+        el("input", { id: "in-client", placeholder: "Client-ID", autocomplete: "off", spellcheck: "false" }),
+        el("button", { type: "submit" }, "OK")),
+      redirectHelp(true));
+    return;
+  }
+  if (!spotifyConnected()) {
+    c.append(el("div", { class: "status warn" }, "Nicht verbunden – ohne Verbindung gibt es keine Einlaufmusik."),
+      el("button", { class: "b-spotify", style: "width:100%;margin-top:10px", onclick: spotifyLogin }, "🎧 MIT SPOTIFY VERBINDEN"),
+      redirectHelp(false),
+      el("button", { class: "b-ghost", style: "margin-top:10px;font-size:14px", onclick: () => { if (confirm("Client-ID ändern?")) { SP.clientId = ""; saveSP(); renderSpotify(); } } }, "Client-ID ändern"));
+    return;
+  }
+  const sel = el("select", { onchange: (e) => { SP.deviceId = e.target.value; saveSP(); } },
+    el("option", { value: "" }, "Automatisch (aktives Gerät / dieses Handy)"));
+  const refresh = async () => {
+    try { await loadDevices(); } catch { devices = []; }
+    sel.replaceChildren(sel.firstChild, ...devices.map((d) => el("option", { value: d.id, selected: d.id === SP.deviceId }, `${d.name} (${d.type})`)));
+    if (!devices.length) toast("Keine Geräte – öffne kurz die Spotify-App", 3500);
+  };
+  c.append(
+    el("div", { class: "status ok" }, "Verbunden" + (SP.user ? " als " + SP.user : "") + " ✅"),
+    el("p", { class: "muted", style: "margin:10px 0 6px" }, "Musik abspielen auf:"),
+    el("div", { class: "row" }, sel, el("button", { class: "icon-btn b-slate", "aria-label": "Geräte neu laden", onclick: refresh }, "↻")),
+    el("p", { class: "muted" }, "Tipp: Die Spotify-App auf dem Handy vor dem Turnier einmal öffnen, sonst findet Spotify kein Gerät."),
+    el("div", { class: "row" },
+      el("button", { class: "b-slate", style: "flex:1", onclick: () => stopMusic().then(() => toast("Musik gestoppt")) }, "⏹ Musik stopp"),
+      el("button", { class: "b-ghost", onclick: () => { if (confirm("Spotify trennen?")) spotifyLogout(); } }, "Trennen")));
+  refresh();
+}
+function redirectHelp(open) {
+  return el("details", { open },
+    el("summary", {}, "So richtest du die Spotify-App ein"),
+    el("ol", { class: "help" },
+      el("li", {}, "developer.spotify.com/dashboard öffnen und deine App auswählen"),
+      el("li", {}, "Bei „Edit Settings“ unter „Redirect URIs“ genau diese Adresse eintragen und speichern:",
+        el("code", { class: "copy", onclick: () => navigator.clipboard?.writeText(REDIRECT_URI).then(() => toast("Kopiert")) }, REDIRECT_URI)),
+      el("li", {}, "„Web API“ muss angehakt sein"),
+      el("li", {}, "Die Client-ID steht oben bei „Basic Information“")));
+}
+
+// ---------- SETUP: Spiele ----------
+function renderSpiele() {
+  const list = $("#list-spiele");
+  list.replaceChildren(...(S.spiele.length ? S.spiele.map((s, i) => el("div", { class: "item" },
+    el("div", { class: "grow" }, el("div", { class: "name" }, s)),
+    el("button", { class: "icon-btn b-slate", "aria-label": "Umbenennen", onclick: () => editSpiel(i) }, "✏️"),
+    el("button", { class: "icon-btn b-red", "aria-label": "Löschen", onclick: () => delSpiel(i) }, "🗑")))
+    : [el("div", { class: "empty" }, "Noch keine Spiele.")]));
+}
+$("#form-spiel").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const s = $("#in-spiel").value.trim();
+  if (!s) return;
+  if (S.spiele.some((x) => sameName(x, s))) { toast(`Das Spiel „${s}“ gibt es schon.`); return; }
+  S.spiele.push(s); $("#in-spiel").value = ""; save(); renderSpiele();
+});
+function editSpiel(i) {
+  const v = (prompt("Spielname ändern:", S.spiele[i]) || "").trim();
+  if (!v || v === S.spiele[i]) return;
+  if (S.spiele.some((x, j) => j !== i && sameName(x, v))) { toast(`Das Spiel „${v}“ gibt es schon.`); return; }
+  const old = S.spiele[i]; S.spiele[i] = v;
+  for (const t of S.teams) if (old in t.history) { t.history[v] = t.history[old]; delete t.history[old]; }  // Punkte behalten
+  save(); renderSpiele();
+}
+function delSpiel(i) {
+  if (!confirm(`Spiel „${S.spiele[i]}“ wirklich löschen?`)) return;
+  const [s] = S.spiele.splice(i, 1);
+  for (const t of S.teams) { t.points -= t.history[s] || 0; delete t.history[s]; }  // schon vergebene Punkte abziehen
+  if (i < S.current) S.current--; else if (i === S.current) S.draft = {};
+  save(); renderSpiele();
+}
+
+// ---------- SETUP: Teams mit Song-Auswahl ----------
+let editIdx = null;           // welches Team gerade bearbeitet wird (null = neues Team)
+let pickedSong = null;        // {id, name}
+let searchTimer = null;
+
+function renderSongPicker() {
+  const box = $("#song-picker"); box.replaceChildren();
+  if (pickedSong) {
+    box.append(el("div", { class: "song-chip" },
+      el("span", {}, "🎵"), el("span", { class: "grow" }, pickedSong.name),
+      spotifyConnected() && el("button", { type: "button", class: "icon-btn b-spotify", "aria-label": "Probehören", onclick: () => preview(pickedSong.id) }, "▶"),
+      el("button", { type: "button", class: "icon-btn b-ghost", "aria-label": "Song entfernen", onclick: () => { pickedSong = null; renderSongPicker(); } }, "✕")));
+    return;
+  }
+  const input = el("input", { id: "in-song", placeholder: spotifyConnected() ? "Einlaufsong suchen oder Spotify-Link einfügen (optional)" : "Spotify-Songlink einfügen (optional)", autocomplete: "off", enterkeyhint: "search" });
+  const results = el("div", { class: "results" });
+  input.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    const q = input.value.trim(), id = trackId(q);
+    if (id) { pickSong(id, null); return; }
+    if (/spotify\.link\//i.test(q)) { results.replaceChildren(el("div", { class: "status warn" }, "Kurz-Links gehen nicht – in Spotify bei „Teilen“ → „Link kopieren“ den langen open.spotify.com-Link nehmen, oder einfach nach dem Song suchen.")); return; }
+    if (!spotifyConnected() || q.length < 2) { results.replaceChildren(); return; }
+    searchTimer = setTimeout(() => searchSongs(q, results), 350);
+  });
+  box.append(input, results);
+}
+async function searchSongs(q, results) {
+  try {
+    const r = await api("GET", "/search?type=track&limit=6&q=" + encodeURIComponent(q));
+    if (!r.ok) throw 0;
+    const items = (await r.json()).tracks?.items || [];
+    if ($("#in-song")?.value.trim() !== q) return;   // inzwischen weitergetippt
+    results.replaceChildren(...items.map((t) => el("button", { type: "button", class: "result", onclick: () => pickSong(t.id, songLabel(t)) },
+      el("img", { src: t.album.images.at(-1)?.url || "", alt: "" }),
+      el("span", {}, t.name, el("br"), el("small", {}, t.artists.map((a) => a.name).join(", "))))));
+    if (!items.length) results.replaceChildren(el("div", { class: "empty" }, "Nichts gefunden."));
+  } catch { results.replaceChildren(el("div", { class: "status err" }, "Suche ging nicht – Internet und Spotify-Verbindung prüfen.")); }
+}
+const songLabel = (t) => `${t.name} – ${t.artists.map((a) => a.name).join(", ")}`;
+async function pickSong(id, name) {
+  pickedSong = { id, name: name || "Spotify-Song" }; renderSongPicker();
+  if (!name && spotifyConnected()) {   // Titel zum Link nachladen
+    try { const r = await api("GET", "/tracks/" + id); if (r.ok && pickedSong?.id === id) { pickedSong.name = songLabel(await r.json()); renderSongPicker(); } } catch {}
+  }
+}
+function resetTeamForm() {
+  editIdx = null; pickedSong = null; $("#in-team").value = "";
+  $("#team-form-title").textContent = "Team hinzufügen"; $("#btn-team-save").textContent = "+ Team"; $("#btn-team-cancel").hidden = true;
+  renderSongPicker();
+}
+$("#btn-team-cancel").addEventListener("click", resetTeamForm);
+$("#form-team").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const name = $("#in-team").value.trim();
+  if (!name) { $("#in-team").focus(); return; }
+  if (S.teams.some((t, j) => j !== editIdx && sameName(t.name, name))) { toast(`Das Team „${name}“ gibt es schon.`); return; }
+  const song = pickedSong ? { songId: pickedSong.id, songName: pickedSong.name } : { songId: "", songName: "" };
+  if (editIdx === null) { S.teams.push({ name, points: 0, history: {}, ...song }); S.draft = {}; }
+  else Object.assign(S.teams[editIdx], { name, ...song });
+  save(); resetTeamForm(); renderTeams();
+});
+function renderTeams() {
+  const list = $("#list-teams");
+  list.replaceChildren(...(S.teams.length ? S.teams.map((t, i) => el("div", { class: "item" },
+    el("div", { class: "grow" }, el("div", { class: "name" }, t.name), t.songId && el("div", { class: "sub" }, "🎵 " + t.songName)),
+    t.songId && spotifyConnected() && el("button", { class: "icon-btn b-spotify", "aria-label": "Probehören", onclick: () => preview(t.songId) }, "▶"),
+    el("button", { class: "icon-btn b-slate", "aria-label": "Bearbeiten", onclick: () => editTeam(i) }, "✏️"),
+    el("button", { class: "icon-btn b-red", "aria-label": "Löschen", onclick: () => delTeam(i) }, "🗑")))
+    : [el("div", { class: "empty" }, "Noch keine Teams.")]));
+}
+function editTeam(i) {
+  const t = S.teams[i]; editIdx = i;
+  $("#in-team").value = t.name; pickedSong = t.songId ? { id: t.songId, name: t.songName } : null;
+  $("#team-form-title").textContent = "Team bearbeiten"; $("#btn-team-save").textContent = "Speichern"; $("#btn-team-cancel").hidden = false;
+  renderSongPicker(); $("#form-team").scrollIntoView({ behavior: "smooth", block: "center" });
+}
+function delTeam(i) {
+  if (!confirm(`Team „${S.teams[i].name}“ wirklich löschen?`)) return;
+  S.teams.splice(i, 1); S.draft = {}; if (editIdx !== null) resetTeamForm();
+  save(); renderTeams();
+}
+
+// ---------- Tabs ----------
+function showTab(name) {
+  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.id === "tab-" + name));
+  document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
+  if (name === "game") renderGame();
+  if (name === "logs") renderLogs();
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+$("#btn-start").addEventListener("click", () => showTab("game"));
+
+// ---------- WETTKAMPF ----------
+function rangliste() {
+  // [[platz, team], ...] – punktgleiche Teams teilen sich den Platz
+  const r = [...S.teams].sort((a, b) => b.points - a.points), out = [];
+  r.forEach((t, i) => out.push([out.length && out.at(-1)[1].points === t.points ? out.at(-1)[0] : i + 1, t]));
+  return out;
+}
+function renderGame() {
+  const g = $("#tab-game"); g.replaceChildren();
+  if (!S.spiele.length || !S.teams.length) { g.append(el("div", { class: "card empty" }, "Bitte erst Teams und Spiele im Setup anlegen!")); return; }
+  if (S.current >= S.spiele.length) { renderFinal(); return; }
+
+  const n = S.teams.length, last = S.current === S.spiele.length - 1;
+  g.append(el("div", { class: "discipline" }, "DISZIPLIN: " + S.spiele[S.current].toUpperCase()),
+           el("div", { class: "progress" }, `Spiel ${S.current + 1} von ${S.spiele.length} · Platz 1 bis ${n} eintragen`));
+  const inputs = S.teams.map((t, i) => {
+    const inp = el("input", { type: "number", inputmode: "numeric", min: 1, max: n, placeholder: "Platz", value: S.draft[i] ?? "",
+      "aria-label": "Platz für " + t.name,
+      oninput: () => { S.draft[i] = inp.value.trim(); inp.classList.remove("bad"); save(); } });
+    g.append(el("div", { class: "place-row" }, el("div", { class: "name" }, t.name), inp));
+    return inp;
+  });
+  g.append(el("button", { class: "big", onclick: () => nextStep(inputs) }, last ? "TURNIER BEENDEN" : "NÄCHSTES SPIEL"));
+
+  if (S.current > 0) {
+    g.append(el("div", { class: "card" }, el("h2", {}, "Zwischenstand"),
+      ...rangliste().map(([p, t]) => el("div", { class: "score" }, el("span", {}, `${p}. ${t.name}`), el("b", {}, `${t.points} Pkt`)))));
+  }
+  g.append(el("button", { class: "b-red", style: "width:100%", onclick: resetTournament }, "🔄 RESET"));
+}
+function nextStep(inputs) {
+  const n = S.teams.length, plaetze = [];
+  for (let i = 0; i < n; i++) {
+    const p = Number(inputs[i].value);
+    if (!Number.isInteger(p) || p < 1 || p > n) {
+      inputs[i].classList.add("bad"); inputs[i].focus();
+      toast(`Bitte für „${S.teams[i].name}“ einen Platz von 1 bis ${n} eintragen!`, 3500); return;
+    }
+    plaetze.push(p);
+  }
+  const akt = S.spiele[S.current];
+  S.teams.forEach((t, i) => { const pts = n + 1 - plaetze[i]; t.points += pts; t.history[akt] = pts; });
+  S.current++; S.draft = {};
+  if (S.current >= S.spiele.length) S.logFile = null;   // letztes Spiel: frisches Protokoll erzeugen
+  save(); renderGame(); window.scrollTo(0, 0);
+}
+function resetTournament() {
+  if (!confirm("Wirklich alles auf Null setzen?")) return;
+  S.current = 0; S.draft = {}; S.logFile = null;
+  for (const t of S.teams) { t.points = 0; t.history = {}; }
+  save(); showTab("setup");
+}
+function renderFinal() {
+  if (!S.logFile) createProtocol();   // Protokoll beim Turnierende automatisch speichern – nur einmal
+  const g = $("#tab-game");
+  g.append(el("div", { class: "finished" }, "TURNIER BEENDET"),
+    el("div", { class: "saved" }, "✅ Protokoll gespeichert"),
+    el("button", { class: "big b-orange", onclick: openCeremony }, "⭐ SIEGEREHRUNG ⭐"),
+    el("div", { class: "card" }, el("h2", {}, "Endstand"),
+      ...rangliste().map(([p, t]) => el("div", { class: "score" }, el("span", {}, `${p}. ${t.name}`), el("b", {}, `${t.points} Pkt`)))),
+    el("button", { class: "b-green", style: "width:100%;margin-bottom:10px", onclick: () => { showTab("logs"); showLog(S.logFile); } }, "📜 PROTOKOLL ANSEHEN"),
+    el("button", { style: "width:100%", onclick: resetTournament }, "🔄 NEUES TURNIER STARTEN"));
+}
+
+// ---------- PROTOKOLLE ----------
+const pad = (s, n) => (s + " ".repeat(n)).slice(0, Math.max(n, s.length));
+function createProtocol() {
+  const now = new Date(), d = now.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const tm = now.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  const lines = [`DRINKOLYMPICS ${now.getFullYear()}`, `${d} ${tm}`, "=".repeat(35), "RANKING:"];
+  for (const [p, t] of rangliste()) lines.push(`${p}. ${pad(t.name, 20)} | ${t.points} Pkt`);
+  lines.push("", "DISZIPLINEN:");
+  for (const s of S.spiele) {
+    lines.push("", s.toUpperCase() + ":");
+    S.teams.map((t) => [t.name, t.history[s] || 0]).sort((a, b) => b[1] - a[1]).forEach(([n, p]) => lines.push(` - ${pad(n, 20)}: ${p} Pkt`));
+  }
+  const name = "Drinkolympics_" + now.toISOString().slice(0, 16).replace("T", "_") + "_" + randomString(4);
+  S.protokolle.push({ name, datum: now.toISOString(), text: lines.join("\n") + "\n" });
+  S.logFile = name; save();
+}
+let openLog = null;
+function renderLogs() {
+  const l = $("#tab-logs"); l.replaceChildren();
+  if (!S.protokolle.length) { l.append(el("div", { class: "card empty" }, "Noch keine Protokolle. Sie entstehen automatisch am Turnierende.")); return; }
+  const p = S.protokolle.find((x) => x.name === openLog);
+  if (p) {
+    l.append(el("button", { class: "b-ghost", style: "margin-bottom:10px", onclick: () => { openLog = null; renderLogs(); } }, "← Alle Protokolle"),
+      el("div", { class: "log-view" }, p.text),
+      el("div", { class: "row", style: "margin-top:10px" },
+        el("button", { class: "b-green", style: "flex:1", onclick: () => shareLog(p) }, "📤 TEILEN"),
+        el("button", { class: "b-red", onclick: () => { if (confirm("Dieses Protokoll löschen?")) { S.protokolle = S.protokolle.filter((x) => x !== p); save(); openLog = null; renderLogs(); } } }, "🗑")));
+    return;
+  }
+  l.append(el("div", { class: "list" }, ...[...S.protokolle].sort((a, b) => b.datum.localeCompare(a.datum)).map((x) => {
+    const d = new Date(x.datum), winner = (/^1\. (.+?)\s*\|/m.exec(x.text) || [])[1];
+    return el("button", { class: "item", style: "text-align:left;letter-spacing:0", onclick: () => showLog(x.name) },
+      el("div", { class: "grow" }, el("div", { class: "name" }, d.toLocaleString("de-DE", { dateStyle: "medium", timeStyle: "short" })),
+        winner && el("div", { class: "sub" }, "🏆 " + winner.trim())));
+  })));
+}
+function showLog(name) { openLog = name; renderLogs(); }
+async function shareLog(p) {
+  try {
+    if (navigator.share) await navigator.share({ title: "Drinkolympics Protokoll", text: p.text });
+    else { await navigator.clipboard.writeText(p.text); toast("Protokoll kopiert"); }
+  } catch { /* Teilen abgebrochen */ }
+}
+
+// ---------- SIEGEREHRUNG ----------
+let wakeLock = null;
+function openCeremony() {
+  // Teams nach Platz gruppieren – bei Gleichstand stehen mehrere Teams auf einem Platz
+  const gruppen = {};
+  for (const [p, t] of rangliste()) if (p <= 3) (gruppen[p] ||= []).push(t);
+  const reihenfolge = Object.keys(gruppen).map(Number).sort((a, b) => b - a);   // z.B. [3, 2, 1]
+  const farben = { 1: "var(--gold)", 2: "var(--silver)", 3: "var(--bronze)" };
+  const C = $("#ceremony"), rank = $("#c-rank"), team = $("#c-team"), info = $("#c-info"), music = $("#c-music"), next = $("#c-next");
+  let run = 0;   // erhöht sich bei jedem Schritt, damit alte Countdowns abbrechen
+
+  rank.textContent = "DIE SIEGEREHRUNG"; rank.style.color = "#fff";
+  team.textContent = "Bereit?"; team.className = ""; team.style.color = "#333";
+  info.textContent = ""; music.replaceChildren();
+  stopMusic();
+  C.classList.add("open");
+  C.requestFullscreen?.().catch(() => {});
+  navigator.wakeLock?.request("screen").then((w) => (wakeLock = w)).catch(() => {});
+
+  const label = (p) => (p === 1 ? "DEN SIEGER ENTHÜLLEN!" : `${p}. PLATZ ENTHÜLLEN`);
+  const setNext = (pos) => {
+    if (pos < reihenfolge.length) {
+      next.textContent = label(reihenfolge[pos]); next.className = reihenfolge[pos] === 1 ? "b-orange" : "";
+      next.onclick = () => reveal(pos);
+    } else { next.textContent = "ZURÜCK ZUM MENÜ"; next.className = "b-slate"; next.onclick = close; }
+    next.hidden = false;
+  };
+  async function reveal(pos) {
+    const my = ++run, platz = reihenfolge[pos], teams = gruppen[platz];
+    rank.textContent = platz === 1 ? "🏆 1. PLATZ 🏆" : `${platz}. PLATZ`; rank.style.color = farben[platz];
+    info.textContent = ""; music.replaceChildren(); next.hidden = true;
+    // Erst Musik starten (Song vom vorherigen Platz endet dabei), dann Spannung aufbauen
+    const mitSong = teams.find((t) => t.songId);
+    const musikErgebnis = mitSong ? playTrack(mitSong.songId) : stopMusic().then(() => "ok");
+    for (let n = SPANNUNG_SEKUNDEN; n > 0; n--) {
+      team.className = ""; team.style.color = "#555"; team.textContent = "🥁 " + n;
+      await sleep(1000); if (my !== run) return;
+    }
+    team.textContent = teams.map((t) => t.name).join("\n");
+    team.className = platz === 1 ? "winner" : ""; team.style.color = platz === 1 ? farben[1] : "#fff";
+    info.textContent = teams.length > 1 ? "GLEICHSTAND!" : "";
+    for (const t of teams.filter((t) => t.songId)) {
+      music.append(el("button", { class: "b-spotify", onclick: () => preview(t.songId) }, teams.length > 1 ? "🎵 " + t.name : "🎵 MUSIK NOCHMAL"));
+    }
+    const res = await musikErgebnis;
+    if (my === run && res !== "ok") info.textContent = (info.textContent ? info.textContent + "\n" : "") + "(" + musicProblem(res) + ")";
+    setNext(pos + 1);
+  }
+  function close() {
+    run++; C.classList.remove("open"); stopMusic();
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    wakeLock?.release().catch(() => {}); wakeLock = null;
+  }
+  $("#c-close").onclick = close;
+  document.onkeydown = (e) => { if (e.key === "Escape" && C.classList.contains("open")) close(); };
+  setNext(0);
+}
+
+// ---------- Start ----------
+(async () => {
+  await handleRedirect();
+  renderSpotify(); renderSpiele(); renderSongPicker(); renderTeams();
+  if (S.current > 0 || Object.keys(S.draft).length) showTab("game");   // laufendes Turnier direkt zeigen
+})();
+</script>
+</body>
+</html>
