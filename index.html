@@ -41,6 +41,7 @@
   .b-green { background: var(--green); } .b-spotify { background: var(--spotify); } .b-red { background: var(--red); }
   .b-slate { background: var(--slate); } .b-orange { background: var(--orange); } .b-ghost { background: transparent; border: 1px solid #555; }
   .icon-btn { width: 44px; height: 44px; padding: 0; font: 20px/1 system-ui; flex: none; }
+  .icon-btn.pfeil { width: 32px; font-size: 15px; }
   .big { width: 100%; font-size: 30px; padding: 22px; margin: 6px 0 14px; }
   .list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
   .item { display: flex; align-items: center; gap: 8px; background: var(--card2); border-radius: 8px; padding: 6px 6px 6px 12px; }
@@ -521,6 +522,10 @@ function renderSpiele() {
   const list = $("#list-spiele");
   list.replaceChildren(...(S.spiele.length ? S.spiele.map((s, i) => el("div", { class: "item" },
     el("div", { class: "grow" }, el("div", { class: "name" }, s.name), el("div", { class: "sub" }, wertungIcon(s) + wertungText(s))),
+    // Reihenfolge ändern – schon gespielte Spiele bleiben, wo sie sind
+    ...[["▲", -1, "Nach oben"], ["▼", 1, "Nach unten"]].map(([pfeil, d, label]) => el("button", {
+      class: "icon-btn b-slate pfeil", "aria-label": label, disabled: !(i >= S.current && i + d >= S.current && i + d < S.spiele.length),
+      onclick: () => moveSpiel(i, d) }, pfeil)),
     el("button", { class: "icon-btn b-slate", "aria-label": "Bearbeiten", onclick: () => editSpiel(i) }, "✏️"),
     el("button", { class: "icon-btn b-red", "aria-label": "Löschen", onclick: () => delSpiel(i) }, "🗑")))
     : [el("div", { class: "empty" }, "Noch keine Spiele.")]));
@@ -570,6 +575,18 @@ function editSpiel(i) {
   $("#in-spiel").value = s.name; wahl.art = s.art; wahl.besser = s.besser; renderWahl();
   $("#spiel-form-title").textContent = "Spiel bearbeiten"; $("#btn-spiel-save").textContent = "Speichern"; $("#btn-spiel-cancel").hidden = false;
   $("#form-spiel").scrollIntoView({ behavior: "smooth", block: "center" });
+}
+function moveSpiel(i, d) {
+  const j = i + d;
+  if (Math.min(i, j) < S.current || j >= S.spiele.length) return;   // gespielte Spiele nicht verschieben
+  const aktuellBetroffen = S.current === i || S.current === j;
+  if (aktuellBetroffen && Object.values(S.draft).some((v) => v)
+      && !confirm(`Für „${S.spiele[S.current].name}“ sind schon Ergebnisse eingetragen.\nDie gehen beim Verschieben verloren. Trotzdem?`)) return;
+  [S.spiele[i], S.spiele[j]] = [S.spiele[j], S.spiele[i]];
+  // Wird ein anderes Spiel zum aktuellen, gehören die angefangenen Eingaben nicht mehr dazu
+  if (aktuellBetroffen) { S.draft = {}; S.uhren = {}; }
+  if (spielEditIdx !== null) resetSpielForm();
+  save(); renderSpiele();
 }
 // Wertung eines schon gespielten Spiels geändert: Punkte aus den eingetragenen Ergebnissen neu berechnen
 function neuWerten(i) {
@@ -678,6 +695,7 @@ function delTeam(i) {
 function showTab(name) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.id === "tab-" + name));
   document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
+  if (name === "setup") renderSpiele();   // z.B. Pfeile gespielter Spiele sperren
   if (name === "game") renderGame();
   if (name === "logs") renderLogs();
   window.scrollTo(0, 0);
@@ -858,6 +876,7 @@ function renderFinal() {
     el("div", { class: "card" }, el("h2", {}, "Endstand"),
       ...rangliste().map(([p, t]) => el("div", { class: "score" }, el("span", {}, `${p}. ${t.name}`), el("b", {}, `${t.points} Pkt`)))),
     el("button", { class: "b-green", style: "width:100%;margin-bottom:10px", onclick: () => { showTab("logs"); showLog(S.logFile); } }, "📜 PROTOKOLL ANSEHEN"),
+    el("button", { style: "width:100%;margin-bottom:10px;background:#16a085", onclick: bildTeilen }, "🖼 ERGEBNIS ALS BILD TEILEN"),
     el("button", { class: "b-slate", style: "width:100%;margin-bottom:10px", onclick: anPcSenden }, "💻 AN DEN PC SENDEN"),
     el("button", { class: "b-slate", style: "width:100%;margin-bottom:14px", onclick: korrigieren }, "↩ LETZTES SPIEL KORRIGIEREN"),
     bonusKarte(),
@@ -1094,6 +1113,68 @@ $("#cd-presets").append(
 $("#cd-start").addEventListener("click", cdStartPause);
 $("#cd-reset").addEventListener("click", () => cdSetzen(S.countdown || 60));
 $("#cd-close").addEventListener("click", closeCountdown);
+
+// ---------- Ergebnis als Bild (zum Teilen, z.B. in der WhatsApp-Gruppe) ----------
+function bildDaten() {
+  const p = S.protokolle.find((x) => x.name === S.logFile);
+  const datum = (p ? new Date(p.datum) : new Date()).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const plaetze = rangliste().map(([platz, t]) => [platz, t.name, t.points]);
+  const disziplinen = [];
+  for (const s of S.spiele) {   // Gewinner je Spiel mit Ergebnis
+    const gespielt = S.teams.filter((t) => s.name in t.history);
+    if (!gespielt.length) continue;
+    const beste = Math.max(...gespielt.map((t) => t.history[s.name]));
+    disziplinen.push([s.name, gespielt.filter((t) => t.history[s.name] === beste).map((t) => {
+      const v = t.werte?.[s.name];
+      return t.name + (v != null && v !== DNF ? ` (${formatWert(v, s.art)})` : "");
+    }).join(", ")]);
+  }
+  return { datum, plaetze, disziplinen };
+}
+async function ergebnisBild({ datum, plaetze, disziplinen }) {
+  await document.fonts.load("100px Anton").catch(() => {});
+  const B = 1080, ZEILE = 96, H = 600 + plaetze.length * ZEILE + (disziplinen.length ? 120 + disziplinen.length * 58 : 0) + 110;
+  const c = Object.assign(document.createElement("canvas"), { width: B, height: H }), x = c.getContext("2d");
+  const font = (g) => `${g}px Anton, Impact, sans-serif`;
+  const passend = (text, g, max) => { x.font = font(g); while (g > 20 && x.measureText(text).width > max) x.font = font(g -= 2); };   // Schrift verkleinern, bis es passt
+  const text = (t, px, py, g, farbe, align = "center", max = 980) => { passend(t, g, max); x.fillStyle = farbe; x.textAlign = align; x.textBaseline = "middle"; x.fillText(t, px, py); };
+  const farben = { 1: "#ffd700", 2: "#c0c0c0", 3: "#cd7f32" };
+
+  x.fillStyle = "#1a1a1a"; x.fillRect(0, 0, B, H);
+  x.fillStyle = "#1f538d"; x.fillRect(0, 0, B, 190);
+  text("DRINKOLYMPICS", B / 2, 98, 120, "#fff");
+  text(datum, B / 2, 250, 44, "#9a9a9a");
+  text("SIEGER", B / 2, 340, 56, farben[1]);
+  text(plaetze.filter(([p]) => p === 1).map(([, n]) => n).join(" & "), B / 2, 445, 130, farben[1]);
+  let y = 600;
+  for (const [platz, name, punkte] of plaetze) {
+    x.fillStyle = "#2b2b2b"; x.beginPath(); x.roundRect(60, y, B - 120, ZEILE - 14, 18); x.fill();
+    const my = y + (ZEILE - 14) / 2;
+    x.fillStyle = farben[platz] || "#444"; x.beginPath(); x.arc(115, my, 30, 0, 2 * Math.PI); x.fill();
+    text(String(platz), 115, my + 2, 38, platz <= 3 ? "#1a1a1a" : "#fff");
+    const pkt = `${punkte} PKT`; x.font = font(48); const pktBreite = x.measureText(pkt).width;
+    text(pkt, B - 90, my + 2, 48, farben[platz] || "#f2f2f2", "right");
+    text(name, 175, my + 2, 54, "#fff", "left", B - 90 - pktBreite - 40 - 175);
+    y += ZEILE;
+  }
+  if (disziplinen.length) {
+    y += 50; text("DISZIPLINEN", B / 2, y, 52, "#3a7ebf"); y += 70;
+    for (const [spiel, gewinner] of disziplinen) { text(`${spiel}:  ${gewinner}`, 80, y, 40, "#c8c8c8", "left", B - 160); y += 58; }
+  }
+  text("erstellt mit Drinkolympics", B / 2, H - 55, 30, "#555");
+  return c;
+}
+async function bildTeilen() {
+  const daten = bildDaten(), canvas = await ergebnisBild(daten);
+  const blob = await new Promise((r) => canvas.toBlob(r, "image/png"));
+  const datei = new File([blob], `Drinkolympics_${daten.datum.replace(/\./g, "-")}.png`, { type: "image/png" });
+  if (navigator.canShare?.({ files: [datei] })) {
+    try { await navigator.share({ files: [datei], title: "Drinkolympics" }); return; } catch (e) { if (e.name === "AbortError") return; }
+  }
+  const a = el("a", { href: URL.createObjectURL(blob), download: datei.name });   // ohne Teilen-Menü: Bild herunterladen
+  document.body.append(a); a.click(); a.remove();
+  toast("Bild gespeichert");
+}
 
 // ---------- Turnier an den PC senden (Text mit #import=..., am PC bei „📥 VOM HANDY“ einfügen) ----------
 async function anPcSenden() {
