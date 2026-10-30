@@ -68,6 +68,11 @@
   .place-row .name { flex: 1; font: 21px/1.2 var(--display); overflow-wrap: anywhere; }
   .place-row input { width: 84px; text-align: center; font: 22px/1 var(--display); padding: 10px 6px; }
   .place-row input.bad { outline: 2px solid var(--red); }
+  .place-row .time-in { display: flex; align-items: center; gap: 4px; font: 22px/1 var(--display); }
+  .place-row .time-in input { width: 64px; }
+  .seg { display: flex; gap: 3px; background: #1f1f1f; border: 1px solid #555; border-radius: 8px; padding: 3px; }
+  .seg button { flex: 1; background: transparent; color: var(--muted); font: 17px/1.2 var(--display); letter-spacing: .5px; padding: 9px 4px; }
+  .seg button[aria-pressed="true"] { background: var(--blue); color: #fff; }
   .score { display: flex; justify-content: space-between; padding: 6px 2px; border-bottom: 1px solid #3a3a3a; font-size: 15px; }
   .finished { text-align: center; font: 44px/1 var(--display); color: var(--gold); margin: 18px 0 6px; }
   .saved { text-align: center; color: #2ecc71; margin-bottom: 14px; }
@@ -103,10 +108,15 @@
     <div class="card" id="spotify-card"></div>
 
     <div class="card">
-      <h2>Spiele</h2>
-      <form class="row" id="form-spiel">
-        <input id="in-spiel" placeholder="Spiel hinzufügen…" autocomplete="off" enterkeyhint="done">
-        <button type="submit">+ Spiel</button>
+      <h2 id="spiel-form-title">Spiele</h2>
+      <form class="stack" id="form-spiel">
+        <div class="row">
+          <input id="in-spiel" placeholder="Spiel hinzufügen…" autocomplete="off" enterkeyhint="done">
+          <button type="submit" id="btn-spiel-save">+ Spiel</button>
+        </div>
+        <div class="seg" id="seg-art"><button type="button" data-v="punkte">🔢 Punkte</button><button type="button" data-v="zeit">⏱ Zeit</button></div>
+        <div class="seg" id="seg-besser"><button type="button" data-v="hoch">Mehr gewinnt</button><button type="button" data-v="niedrig">Weniger gewinnt</button></div>
+        <button type="button" class="b-ghost" id="btn-spiel-cancel" style="width:100%" hidden>Abbrechen</button>
       </form>
       <div class="list" id="list-spiele"></div>
     </div>
@@ -187,6 +197,49 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // ---------- Spielstand (bleibt auf dem Handy gespeichert) ----------
 const S = Object.assign({ teams: [], spiele: [], current: 0, draft: {}, logFile: null, protokolle: [] }, load(STATE_KEY, {}));
 function save() { store(STATE_KEY, S); }
+
+// ---------- Wertung ----------
+// Ein Spiel: {name, art: "punkte" | "zeit", besser: "hoch" (mehr gewinnt) | "niedrig" (weniger gewinnt)}
+const neuesSpiel = (name, art = "punkte", besser) => ({ name, art: art === "zeit" ? "zeit" : "punkte",
+  besser: besser === "hoch" || besser === "niedrig" ? besser : art === "zeit" ? "niedrig" : "hoch" });
+// Ältere Stände kennen nur den Spielnamen – die werden als „mehr Punkte gewinnt“ übernommen
+const spielAusDaten = (s) => typeof s === "string" ? neuesSpiel(s) : neuesSpiel(s.name || "", s.art, s.besser);
+S.spiele = S.spiele.map(spielAusDaten);
+const wertungText = (s) => (s.art === "zeit" ? "Zeit" : "Punkte") + " – " + (s.besser === "hoch" ? "mehr" : "weniger") + " gewinnt";
+const wertungIcon = (s) => (s.art === "zeit" ? "⏱ " : "🔢 ");
+// Punkte: Zahl (Komma oder Punkt). Zeit: Sekunden ("83,5") oder Minuten:Sekunden ("1:23,5", auch "1:02:03").
+function parseWert(text, art) {
+  const t = String(text ?? "").trim().replace(/,/g, ".");
+  if (!t) return null;
+  const zahl = (x) => (/^-?(\d+\.?\d*|\.\d+)$/.test(x) ? Number(x) : NaN);
+  let v;
+  if (art === "zeit" && t.includes(":")) {
+    const teile = t.split(":").map(zahl);
+    if (teile.length > 3 || teile.some((x) => !(x >= 0)) || teile.slice(1).some((x) => x >= 60)) return null;
+    v = teile.reduce((a, x) => a * 60 + x, 0);
+  } else v = zahl(t);
+  if (!Number.isFinite(v) || (art === "zeit" && v < 0)) return null;
+  return v;
+}
+function formatWert(v, art) {
+  if (v == null) return "–";
+  v = Math.round(v * 100) / 100;
+  if (art !== "zeit") return String(v).replace(".", ",");
+  const ganz = Math.floor(v), nach = (v - ganz).toFixed(2).slice(1).replace(/0+$/, "").replace(/\.$/, "").replace(".", ",");
+  const h = Math.floor(ganz / 3600), m = Math.floor((ganz % 3600) / 60), s = ganz % 60, p2 = (x) => String(x).padStart(2, "0");
+  return h ? `${h}:${p2(m)}:${p2(s)}${nach}` : m ? `${m}:${p2(s)}${nach}` : `${s}${nach} s`;
+}
+// Bester bekommt so viele Punkte, wie es Teams gibt, der Zweite einen weniger usw. Gleiche Werte teilen sich den Platz.
+function punkteVergeben(werte, besser) {
+  const n = werte.length, reihenfolge = [...werte.keys()].sort((a, b) => (besser === "hoch" ? werte[b] - werte[a] : werte[a] - werte[b]));
+  const punkte = Array(n).fill(0);
+  let platz = 0;
+  reihenfolge.forEach((i, rang) => {
+    if (rang === 0 || werte[i] !== werte[reihenfolge[rang - 1]]) platz = rang + 1;
+    punkte[i] = n + 1 - platz;
+  });
+  return punkte;
+}
 
 // ---------- Spotify ----------
 // Client-ID der Drinkolympics-App im Spotify-Dashboard (nicht geheim). Wer dort unter
@@ -419,31 +472,70 @@ function redirectHelp(open) {
 function renderSpiele() {
   const list = $("#list-spiele");
   list.replaceChildren(...(S.spiele.length ? S.spiele.map((s, i) => el("div", { class: "item" },
-    el("div", { class: "grow" }, el("div", { class: "name" }, s)),
-    el("button", { class: "icon-btn b-slate", "aria-label": "Umbenennen", onclick: () => editSpiel(i) }, "✏️"),
+    el("div", { class: "grow" }, el("div", { class: "name" }, s.name), el("div", { class: "sub" }, wertungIcon(s) + wertungText(s))),
+    el("button", { class: "icon-btn b-slate", "aria-label": "Bearbeiten", onclick: () => editSpiel(i) }, "✏️"),
     el("button", { class: "icon-btn b-red", "aria-label": "Löschen", onclick: () => delSpiel(i) }, "🗑")))
     : [el("div", { class: "empty" }, "Noch keine Spiele.")]));
 }
+// Auswahl für neue Spiele: Zeit oder Punkte – und ob mehr oder weniger gewinnt
+let spielEditIdx = null;     // welches Spiel gerade bearbeitet wird (null = neues Spiel)
+const wahl = { art: "punkte", besser: "hoch" };
+function renderWahl() {
+  for (const [id, key] of [["#seg-art", "art"], ["#seg-besser", "besser"]])
+    $(id).querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === wahl[key])));
+}
+$("#seg-art").addEventListener("click", (e) => {
+  const v = e.target.closest("button")?.dataset.v; if (!v) return;
+  // Bei Zeit gewinnt meistens die schnellste, bei Punkten die meisten – kann man danach aber umstellen
+  wahl.art = v; wahl.besser = v === "zeit" ? "niedrig" : "hoch"; renderWahl();
+});
+$("#seg-besser").addEventListener("click", (e) => {
+  const v = e.target.closest("button")?.dataset.v; if (v) { wahl.besser = v; renderWahl(); }
+});
+function resetSpielForm() {
+  if (spielEditIdx !== null) { wahl.art = "punkte"; wahl.besser = "hoch"; renderWahl(); }   // nach dem Bearbeiten wieder Standard
+  spielEditIdx = null; $("#in-spiel").value = "";
+  $("#spiel-form-title").textContent = "Spiele"; $("#btn-spiel-save").textContent = "+ Spiel"; $("#btn-spiel-cancel").hidden = true;
+}
+$("#btn-spiel-cancel").addEventListener("click", resetSpielForm);
 $("#form-spiel").addEventListener("submit", (e) => {
   e.preventDefault();
-  const s = $("#in-spiel").value.trim();
-  if (!s) return;
-  if (S.spiele.some((x) => sameName(x, s))) { toast(`Das Spiel „${s}“ gibt es schon.`); return; }
-  S.spiele.push(s); $("#in-spiel").value = ""; save(); renderSpiele();
+  const name = $("#in-spiel").value.trim();
+  if (!name) { $("#in-spiel").focus(); return; }
+  if (S.spiele.some((x, j) => j !== spielEditIdx && sameName(x.name, name))) { toast(`Das Spiel „${name}“ gibt es schon.`); return; }
+  const neu = neuesSpiel(name, wahl.art, wahl.besser);
+  if (spielEditIdx === null) S.spiele.push(neu);
+  else {
+    const i = spielEditIdx, old = S.spiele[i]; S.spiele[i] = neu;
+    // Bereits vergebene Punkte und Ergebnisse unter dem neuen Namen behalten
+    for (const t of S.teams) {
+      t.werte ||= {};
+      if (old.name in t.history) { const p = t.history[old.name]; delete t.history[old.name]; t.history[name] = p; }
+      if (old.name in t.werte) { const v = t.werte[old.name]; delete t.werte[old.name]; t.werte[name] = v; }
+    }
+    if (old.art !== neu.art || old.besser !== neu.besser) neuWerten(i);
+  }
+  save(); resetSpielForm(); renderSpiele();
 });
 function editSpiel(i) {
-  const v = (prompt("Spielname ändern:", S.spiele[i]) || "").trim();
-  if (!v || v === S.spiele[i]) return;
-  if (S.spiele.some((x, j) => j !== i && sameName(x, v))) { toast(`Das Spiel „${v}“ gibt es schon.`); return; }
-  const old = S.spiele[i]; S.spiele[i] = v;
-  for (const t of S.teams) if (old in t.history) { t.history[v] = t.history[old]; delete t.history[old]; }  // Punkte behalten
-  save(); renderSpiele();
+  const s = S.spiele[i]; spielEditIdx = i;
+  $("#in-spiel").value = s.name; wahl.art = s.art; wahl.besser = s.besser; renderWahl();
+  $("#spiel-form-title").textContent = "Spiel bearbeiten"; $("#btn-spiel-save").textContent = "Speichern"; $("#btn-spiel-cancel").hidden = false;
+  $("#form-spiel").scrollIntoView({ behavior: "smooth", block: "center" });
+}
+// Wertung eines schon gespielten Spiels geändert: Punkte aus den eingetragenen Ergebnissen neu berechnen
+function neuWerten(i) {
+  if (i >= S.current) return;
+  const s = S.spiele[i], werte = S.teams.map((t) => t.werte?.[s.name]);
+  if (!werte.length || werte.some((v) => v == null)) return;   // Ergebnisse fehlen (z.B. Stand aus alter Version)
+  punkteVergeben(werte, s.besser).forEach((p, j) => { const t = S.teams[j]; t.points += p - (t.history[s.name] || 0); t.history[s.name] = p; });
 }
 function delSpiel(i) {
-  if (!confirm(`Spiel „${S.spiele[i]}“ wirklich löschen?`)) return;
-  const [s] = S.spiele.splice(i, 1);
-  for (const t of S.teams) { t.points -= t.history[s] || 0; delete t.history[s]; }  // schon vergebene Punkte abziehen
+  if (!confirm(`Spiel „${S.spiele[i].name}“ wirklich löschen?`)) return;
+  const [{ name: s }] = S.spiele.splice(i, 1);
+  for (const t of S.teams) { t.points -= t.history[s] || 0; delete t.history[s]; if (t.werte) delete t.werte[s]; }  // schon vergebene Punkte abziehen
   if (i < S.current) S.current--; else if (i === S.current) S.draft = {};
+  if (spielEditIdx !== null) resetSpielForm();
   save(); renderSpiele();
 }
 
@@ -504,7 +596,7 @@ $("#form-team").addEventListener("submit", (e) => {
   if (!name) { $("#in-team").focus(); return; }
   if (S.teams.some((t, j) => j !== editIdx && sameName(t.name, name))) { toast(`Das Team „${name}“ gibt es schon.`); return; }
   const song = pickedSong ? { songId: pickedSong.id, songName: pickedSong.name } : { songId: "", songName: "" };
-  if (editIdx === null) { S.teams.push({ name, points: 0, history: {}, ...song }); S.draft = {}; }
+  if (editIdx === null) { S.teams.push({ name, points: 0, history: {}, werte: {}, ...song }); S.draft = {}; }
   else Object.assign(S.teams[editIdx], { name, ...song });
   save(); resetTeamForm(); renderTeams();
 });
@@ -552,17 +644,30 @@ function renderGame() {
   if (!S.spiele.length || !S.teams.length) { g.append(el("div", { class: "card empty" }, "Bitte erst Teams und Spiele im Setup anlegen!")); return; }
   if (S.current >= S.spiele.length) { renderFinal(); return; }
 
-  const n = S.teams.length, last = S.current === S.spiele.length - 1;
-  g.append(el("div", { class: "discipline" }, "DISZIPLIN: " + S.spiele[S.current].toUpperCase()),
-           el("div", { class: "progress" }, `Spiel ${S.current + 1} von ${S.spiele.length} · Platz 1 bis ${n} eintragen`));
-  const inputs = S.teams.map((t, i) => {
-    const inp = el("input", { type: "number", inputmode: "numeric", min: 1, max: n, placeholder: "Platz", value: S.draft[i] ?? "",
-      "aria-label": "Platz für " + t.name,
-      oninput: () => { S.draft[i] = inp.value.trim(); inp.classList.remove("bad"); save(); } });
-    g.append(el("div", { class: "place-row" }, el("div", { class: "name" }, t.name), inp));
-    return inp;
+  const akt = S.spiele[S.current], zeit = akt.art === "zeit", last = S.current === S.spiele.length - 1;
+  g.append(el("div", { class: "discipline" }, "DISZIPLIN: " + akt.name.toUpperCase()),
+           el("div", { class: "progress" }, `Spiel ${S.current + 1} von ${S.spiele.length} · ${wertungIcon(akt)}${wertungText(akt)}`));
+  if (letztesErgebnis) g.append(ergebnisKarte());
+  // Je Team ein Feld für die Punkte bzw. zwei Felder (Minuten und Sekunden) für die Zeit
+  const zeilen = S.teams.map((t, i) => {
+    let felder, wert;
+    if (zeit) {
+      const d = S.draft[i] ?? "", k = d.indexOf(":");
+      const mi = el("input", { inputmode: "numeric", placeholder: "min", value: k < 0 ? "" : d.slice(0, k), "aria-label": "Minuten für " + t.name });
+      const si = el("input", { inputmode: "decimal", placeholder: "sek", value: k < 0 ? d : d.slice(k + 1), "aria-label": "Sekunden für " + t.name });
+      felder = [mi, si];
+      wert = () => { const m = mi.value.trim(), s = si.value.trim(); return m ? `${m}:${s || "0"}` : s; };
+    } else {
+      const inp = el("input", { inputmode: "decimal", placeholder: "Punkte", value: S.draft[i] ?? "", "aria-label": "Punkte für " + t.name });
+      felder = [inp];
+      wert = () => inp.value.trim();
+    }
+    for (const f of felder) f.addEventListener("input", () => { S.draft[i] = wert(); felder.forEach((x) => x.classList.remove("bad")); save(); });
+    g.append(el("div", { class: "place-row" }, el("div", { class: "name" }, t.name),
+      zeit ? el("div", { class: "time-in" }, felder[0], ":", felder[1]) : felder[0]));
+    return { wert, fehler: () => { felder.forEach((x) => x.classList.add("bad")); felder[zeit && !felder[1].value.trim() ? 1 : 0].focus(); } };
   });
-  g.append(el("button", { class: "big", onclick: () => nextStep(inputs) }, last ? "TURNIER BEENDEN" : "NÄCHSTES SPIEL"));
+  g.append(el("button", { class: "big", onclick: () => nextStep(zeilen) }, last ? "TURNIER BEENDEN" : "NÄCHSTES SPIEL"));
 
   if (S.current > 0) {
     g.append(el("div", { class: "card" }, el("h2", {}, "Zwischenstand"),
@@ -570,26 +675,35 @@ function renderGame() {
   }
   g.append(el("button", { class: "b-red", style: "width:100%", onclick: resetTournament }, "🔄 RESET"));
 }
-function nextStep(inputs) {
-  const n = S.teams.length, plaetze = [];
-  for (let i = 0; i < n; i++) {
-    const p = Number(inputs[i].value);
-    if (!Number.isInteger(p) || p < 1 || p > n) {
-      inputs[i].classList.add("bad"); inputs[i].focus();
-      toast(`Bitte für „${S.teams[i].name}“ einen Platz von 1 bis ${n} eintragen!`, 3500); return;
+// Ergebnis des zuletzt gewerteten Spiels – wird über dem nächsten Spiel angezeigt
+let letztesErgebnis = null;
+function ergebnisKarte() {
+  const { spiel, zeilen } = letztesErgebnis;
+  return el("div", { class: "card" }, el("h2", {}, "Ergebnis: " + spiel.name),
+    ...zeilen.map((z) => el("div", { class: "score" }, el("span", {}, `${z.name} (${formatWert(z.wert, spiel.art)})`), el("b", {}, `+${z.pkt} Pkt`))));
+}
+function nextStep(zeilen) {
+  const akt = S.spiele[S.current], werte = [];
+  for (let i = 0; i < S.teams.length; i++) {
+    const v = parseWert(zeilen[i].wert(), akt.art);
+    if (v == null) {
+      zeilen[i].fehler();
+      toast(`Bitte für „${S.teams[i].name}“ ${akt.art === "zeit" ? "eine Zeit" : "eine Punktzahl"} eintragen!`, 3500); return;
     }
-    plaetze.push(p);
+    werte.push(v);
   }
-  const akt = S.spiele[S.current];
-  S.teams.forEach((t, i) => { const pts = n + 1 - plaetze[i]; t.points += pts; t.history[akt] = pts; });
+  // Platzierung ergibt sich aus den Ergebnissen: Bester bekommt so viele Punkte, wie es Teams gibt
+  const punkte = punkteVergeben(werte, akt.besser);
+  S.teams.forEach((t, i) => { t.points += punkte[i]; t.history[akt.name] = punkte[i]; (t.werte ||= {})[akt.name] = werte[i]; });
+  letztesErgebnis = { spiel: akt, zeilen: S.teams.map((t, i) => ({ name: t.name, wert: werte[i], pkt: punkte[i] })).sort((a, b) => b.pkt - a.pkt) };
   S.current++; S.draft = {};
   if (S.current >= S.spiele.length) S.logFile = null;   // letztes Spiel: frisches Protokoll erzeugen
   save(); renderGame(); window.scrollTo(0, 0);
 }
 function resetTournament() {
   if (!confirm("Wirklich alles auf Null setzen?")) return;
-  S.current = 0; S.draft = {}; S.logFile = null;
-  for (const t of S.teams) { t.points = 0; t.history = {}; }
+  S.current = 0; S.draft = {}; S.logFile = null; letztesErgebnis = null;
+  for (const t of S.teams) { t.points = 0; t.history = {}; t.werte = {}; }
   save(); showTab("setup");
 }
 function renderFinal() {
@@ -597,6 +711,7 @@ function renderFinal() {
   const g = $("#tab-game");
   g.append(el("div", { class: "finished" }, "TURNIER BEENDET"),
     el("div", { class: "saved" }, "✅ Protokoll gespeichert"),
+    letztesErgebnis && ergebnisKarte(),
     el("button", { class: "big b-orange", onclick: openCeremony }, "⭐ SIEGEREHRUNG ⭐"),
     el("div", { class: "card" }, el("h2", {}, "Endstand"),
       ...rangliste().map(([p, t]) => el("div", { class: "score" }, el("span", {}, `${p}. ${t.name}`), el("b", {}, `${t.points} Pkt`)))),
@@ -613,8 +728,11 @@ function createProtocol() {
   for (const [p, t] of rangliste()) lines.push(`${p}. ${pad(t.name, 20)} | ${t.points} Pkt`);
   lines.push("", "DISZIPLINEN:");
   for (const s of S.spiele) {
-    lines.push("", s.toUpperCase() + ":");
-    S.teams.map((t) => [t.name, t.history[s] || 0]).sort((a, b) => b[1] - a[1]).forEach(([n, p]) => lines.push(` - ${pad(n, 20)}: ${p} Pkt`));
+    lines.push("", `${s.name.toUpperCase()} (${wertungText(s)}):`);
+    [...S.teams].sort((a, b) => (b.history[s.name] || 0) - (a.history[s.name] || 0)).forEach((t) => {
+      const v = t.werte?.[s.name];
+      lines.push(` - ${pad(t.name, 20)}: ${t.history[s.name] || 0} Pkt` + (v != null ? `  (${formatWert(v, s.art)})` : ""));
+    });
   }
   const name = "Drinkolympics_" + now.toISOString().slice(0, 16).replace("T", "_") + "_" + randomString(4);
   S.protokolle.push({ name, datum: now.toISOString(), text: lines.join("\n") + "\n" });
@@ -719,7 +837,7 @@ function openCeremony() {
 // ---------- Start ----------
 (async () => {
   await handleRedirect();
-  renderSpotify(); renderSpiele(); renderSongPicker(); renderTeams();
+  renderSpotify(); renderWahl(); renderSpiele(); renderSongPicker(); renderTeams();
   if (S.current > 0 || Object.keys(S.draft).length) showTab("game");   // laufendes Turnier direkt zeigen
 })();
 </script>
