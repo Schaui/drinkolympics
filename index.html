@@ -189,7 +189,10 @@ const S = Object.assign({ teams: [], spiele: [], current: 0, draft: {}, logFile:
 function save() { store(STATE_KEY, S); }
 
 // ---------- Spotify ----------
-const SP = Object.assign({ clientId: "", access: "", refresh: "", expires: 0, deviceId: "", user: "" }, load(SPOTIFY_KEY, {}));
+// Client-ID der Drinkolympics-App im Spotify-Dashboard (nicht geheim). Wer dort unter
+// „User Management“ eingetragen ist, muss nur noch auf „Verbinden“ tippen.
+const STANDARD_CLIENT_ID = "7cf3e01f486449d7aadec9f752986e20";
+const SP = Object.assign({ clientId: STANDARD_CLIENT_ID, access: "", refresh: "", expires: 0, deviceId: "", user: "" }, load(SPOTIFY_KEY, {}));
 function saveSP() { store(SPOTIFY_KEY, SP); }
 const spotifyConnected = () => !!SP.refresh;
 
@@ -238,6 +241,11 @@ async function handleRedirect() {
   try {
     await tokenRequest({ grant_type: "authorization_code", code: q.get("code"), redirect_uri: REDIRECT_URI, code_verifier: pkce.verifier });
     const me = await api("GET", "/me");
+    if (me.status === 403) {   // Konto steht nicht unter „User Management“ der Spotify-App
+      spotifyLogout();
+      toast("Dein Spotify-Konto ist für diese App nicht freigeschaltet – frag den Organisator", 6000);
+      return;
+    }
     if (me.ok) { SP.user = (await me.json()).display_name || ""; saveSP(); }
     toast("Mit Spotify verbunden ✅");
   } catch (e) { toast("Spotify-Login fehlgeschlagen: " + e.message, 5000); }
@@ -364,7 +372,9 @@ function renderSpotify() {
   if (!spotifyConnected()) {
     c.append(el("div", { class: "status warn" }, "Nicht verbunden – ohne Verbindung gibt es keine Einlaufmusik."),
       el("button", { class: "b-spotify", style: "width:100%;margin-top:10px", onclick: spotifyLogin }, "🎧 MIT SPOTIFY VERBINDEN"),
-      redirectHelp(false),
+      SP.clientId === STANDARD_CLIENT_ID
+        ? el("p", { class: "muted" }, "Du brauchst Spotify Premium, und dein Spotify-Konto muss für die App freigeschaltet sein. Gib dafür dem Organisator deine Spotify-E-Mail.")
+        : redirectHelp(false),
       el("button", { class: "b-ghost", style: "margin-top:10px;font-size:14px", onclick: () => { if (confirm("Client-ID ändern?")) { SP.clientId = ""; saveSP(); renderSpotify(); } } }, "Client-ID ändern"));
     return;
   }
