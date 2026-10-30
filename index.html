@@ -68,6 +68,12 @@
   .place-row .name { flex: 1; font: 21px/1.2 var(--display); overflow-wrap: anywhere; }
   .place-row input { width: 84px; text-align: center; font: 22px/1 var(--display); padding: 10px 6px; }
   .place-row input.bad { outline: 2px solid var(--red); }
+  .place-row { flex-wrap: wrap; }
+  .place-row .actions { flex-basis: 100%; display: flex; gap: 8px; }
+  .place-row .actions button { flex: 1; font-size: 15px; padding: 9px 6px; }
+  .place-row input:disabled { opacity: .35; }
+  button.toggle[aria-pressed="true"] { background: var(--red); border-color: var(--red); }
+  .bonus-plus { color: #2ecc71; } .bonus-minus { color: #e74c3c; }
   .place-row .time-in { display: flex; align-items: center; gap: 4px; font: 22px/1 var(--display); }
   .place-row .time-in input { width: 64px; }
   .seg { display: flex; gap: 3px; background: #1f1f1f; border: 1px solid #555; border-radius: 8px; padding: 3px; }
@@ -195,7 +201,8 @@ const sameName = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------- Spielstand (bleibt auf dem Handy gespeichert) ----------
-const S = Object.assign({ teams: [], spiele: [], current: 0, draft: {}, logFile: null, protokolle: [] }, load(STATE_KEY, {}));
+// bonus: [{team, punkte, grund}] · uhren: laufende Stoppuhren {Team-Nr.: Startzeit in ms}
+const S = Object.assign({ teams: [], spiele: [], current: 0, draft: {}, logFile: null, protokolle: [], bonus: [], uhren: {} }, load(STATE_KEY, {}));
 function save() { store(STATE_KEY, S); }
 
 // ---------- Wertung ----------
@@ -221,21 +228,34 @@ function parseWert(text, art) {
   if (!Number.isFinite(v) || (art === "zeit" && v < 0)) return null;
   return v;
 }
+const DNF = "DNF";   // gespeichertes Ergebnis für „nicht geschafft“
 function formatWert(v, art) {
   if (v == null) return "–";
+  if (v === DNF) return "nicht geschafft";
   v = Math.round(v * 100) / 100;
   if (art !== "zeit") return String(v).replace(".", ",");
   const ganz = Math.floor(v), nach = (v - ganz).toFixed(2).slice(1).replace(/0+$/, "").replace(/\.$/, "").replace(".", ",");
   const h = Math.floor(ganz / 3600), m = Math.floor((ganz % 3600) / 60), s = ganz % 60, p2 = (x) => String(x).padStart(2, "0");
   return h ? `${h}:${p2(m)}:${p2(s)}${nach}` : m ? `${m}:${p2(s)}${nach}` : `${s}${nach} s`;
 }
+// Ergebnis so, wie es ins Eingabefeld gehört: Zeit als "Minuten:Sekunden" bzw. nur Sekunden, z.B. "1:23,5" oder "45,3"
+function eingabeText(v, art) {
+  if (v === DNF) return DNF;
+  if (art !== "zeit") return formatWert(v, art);
+  const m = Math.floor(Math.round(v * 100) / 100 / 60), s = formatWert(Math.max(0, v - m * 60), "zeit").replace(" s", "");
+  if (!m) return s;
+  const [ganz, nach] = s.split(",");
+  return `${m}:${ganz.padStart(2, "0")}${nach ? "," + nach : ""}`;
+}
 // Bester bekommt so viele Punkte, wie es Teams gibt, der Zweite einen weniger usw. Gleiche Werte teilen sich den Platz.
+// null = nicht geschafft: diese Teams teilen sich den letzten Platz.
 function punkteVergeben(werte, besser) {
-  const n = werte.length, reihenfolge = [...werte.keys()].sort((a, b) => (besser === "hoch" ? werte[b] - werte[a] : werte[a] - werte[b]));
-  const punkte = Array(n).fill(0);
+  const n = werte.length, fertig = [...werte.keys()].filter((i) => werte[i] != null)
+    .sort((a, b) => (besser === "hoch" ? werte[b] - werte[a] : werte[a] - werte[b]));
+  const punkte = Array(n).fill(n - fertig.length);
   let platz = 0;
-  reihenfolge.forEach((i, rang) => {
-    if (rang === 0 || werte[i] !== werte[reihenfolge[rang - 1]]) platz = rang + 1;
+  fertig.forEach((i, rang) => {
+    if (rang === 0 || werte[i] !== werte[fertig[rang - 1]]) platz = rang + 1;
     punkte[i] = n + 1 - platz;
   });
   return punkte;
@@ -528,7 +548,7 @@ function neuWerten(i) {
   if (i >= S.current) return;
   const s = S.spiele[i], werte = S.teams.map((t) => t.werte?.[s.name]);
   if (!werte.length || werte.some((v) => v == null)) return;   // Ergebnisse fehlen (z.B. Stand aus alter Version)
-  punkteVergeben(werte, s.besser).forEach((p, j) => { const t = S.teams[j]; t.points += p - (t.history[s.name] || 0); t.history[s.name] = p; });
+  punkteVergeben(werte.map((v) => (v === DNF ? null : v)), s.besser).forEach((p, j) => { const t = S.teams[j]; t.points += p - (t.history[s.name] || 0); t.history[s.name] = p; });
 }
 function delSpiel(i) {
   if (!confirm(`Spiel „${S.spiele[i].name}“ wirklich löschen?`)) return;
@@ -597,7 +617,10 @@ $("#form-team").addEventListener("submit", (e) => {
   if (S.teams.some((t, j) => j !== editIdx && sameName(t.name, name))) { toast(`Das Team „${name}“ gibt es schon.`); return; }
   const song = pickedSong ? { songId: pickedSong.id, songName: pickedSong.name } : { songId: "", songName: "" };
   if (editIdx === null) { S.teams.push({ name, points: 0, history: {}, werte: {}, ...song }); S.draft = {}; }
-  else Object.assign(S.teams[editIdx], { name, ...song });
+  else {
+    for (const b of S.bonus) if (b.team === S.teams[editIdx].name) b.team = name;
+    Object.assign(S.teams[editIdx], { name, ...song });
+  }
   save(); resetTeamForm(); renderTeams();
 });
 function renderTeams() {
@@ -617,7 +640,9 @@ function editTeam(i) {
 }
 function delTeam(i) {
   if (!confirm(`Team „${S.teams[i].name}“ wirklich löschen?`)) return;
-  S.teams.splice(i, 1); S.draft = {}; if (editIdx !== null) resetTeamForm();
+  const [{ name }] = S.teams.splice(i, 1); S.draft = {}; S.uhren = {};
+  S.bonus = S.bonus.filter((b) => b.team !== name);
+  if (editIdx !== null) resetTeamForm();
   save(); renderTeams();
 }
 
@@ -648,32 +673,108 @@ function renderGame() {
   g.append(el("div", { class: "discipline" }, "DISZIPLIN: " + akt.name.toUpperCase()),
            el("div", { class: "progress" }, `Spiel ${S.current + 1} von ${S.spiele.length} · ${wertungIcon(akt)}${wertungText(akt)}`));
   if (letztesErgebnis) g.append(ergebnisKarte());
-  // Je Team ein Feld für die Punkte bzw. zwei Felder (Minuten und Sekunden) für die Zeit
-  const zeilen = S.teams.map((t, i) => {
+  // Je Team ein Feld für die Punkte bzw. zwei Felder (Minuten und Sekunden) für die Zeit,
+  // darunter Stoppuhr (nur bei Zeit) und „nicht geschafft“
+  uhrFelder = {};
+  zeilen = S.teams.map((t, i) => {
+    const dnf = S.draft[i] === DNF, d = dnf ? "" : S.draft[i] ?? "";
     let felder, wert;
     if (zeit) {
-      const d = S.draft[i] ?? "", k = d.indexOf(":");
+      const k = d.indexOf(":");
       const mi = el("input", { inputmode: "numeric", placeholder: "min", value: k < 0 ? "" : d.slice(0, k), "aria-label": "Minuten für " + t.name });
       const si = el("input", { inputmode: "decimal", placeholder: "sek", value: k < 0 ? d : d.slice(k + 1), "aria-label": "Sekunden für " + t.name });
-      felder = [mi, si];
+      felder = [mi, si]; uhrFelder[i] = felder;
       wert = () => { const m = mi.value.trim(), s = si.value.trim(); return m ? `${m}:${s || "0"}` : s; };
     } else {
-      const inp = el("input", { inputmode: "decimal", placeholder: "Punkte", value: S.draft[i] ?? "", "aria-label": "Punkte für " + t.name });
+      const inp = el("input", { inputmode: "decimal", placeholder: "Punkte", value: d, "aria-label": "Punkte für " + t.name });
       felder = [inp];
       wert = () => inp.value.trim();
     }
-    for (const f of felder) f.addEventListener("input", () => { S.draft[i] = wert(); felder.forEach((x) => x.classList.remove("bad")); save(); });
+    for (const f of felder) {
+      f.disabled = dnf;
+      f.addEventListener("input", () => { S.draft[i] = wert(); felder.forEach((x) => x.classList.remove("bad")); save(); });
+    }
+    const laeuft = S.uhren[i] != null;
     g.append(el("div", { class: "place-row" }, el("div", { class: "name" }, t.name),
-      zeit ? el("div", { class: "time-in" }, felder[0], ":", felder[1]) : felder[0]));
-    return { wert, fehler: () => { felder.forEach((x) => x.classList.add("bad")); felder[zeit && !felder[1].value.trim() ? 1 : 0].focus(); } };
+      zeit ? el("div", { class: "time-in" }, felder[0], ":", felder[1]) : felder[0],
+      el("div", { class: "actions" },
+        zeit && el("button", { type: "button", class: laeuft ? "b-red" : "b-green", disabled: dnf, onclick: () => uhrToggle(i) }, laeuft ? "■ Stopp" : "⏱ Start"),
+        el("button", { type: "button", class: "b-ghost toggle", "aria-pressed": String(dnf), onclick: () => dnfToggle(i) }, "✗ nicht geschafft"))));
+    return { fehler: () => { felder.forEach((x) => x.classList.add("bad")); felder[zeit && !felder[1].value.trim() ? 1 : 0].focus(); } };
   });
-  g.append(el("button", { class: "big", onclick: () => nextStep(zeilen) }, last ? "TURNIER BEENDEN" : "NÄCHSTES SPIEL"));
+  uhrTick();
+  g.append(el("button", { class: "big", onclick: nextStep }, last ? "TURNIER BEENDEN" : "NÄCHSTES SPIEL"));
+  if (S.current > 0) g.append(el("button", { class: "b-slate", style: "width:100%;margin-bottom:14px", onclick: korrigieren }, "↩ LETZTES SPIEL KORRIGIEREN"));
 
   if (S.current > 0) {
     g.append(el("div", { class: "card" }, el("h2", {}, "Zwischenstand"),
       ...rangliste().map(([p, t]) => el("div", { class: "score" }, el("span", {}, `${p}. ${t.name}`), el("b", {}, `${t.points} Pkt`)))));
   }
+  g.append(bonusKarte());
   g.append(el("button", { class: "b-red", style: "width:100%", onclick: resetTournament }, "🔄 RESET"));
+}
+let zeilen = [], uhrFelder = {};
+
+// ---------- Stoppuhr & „nicht geschafft“ ----------
+function uhrToggle(i) {
+  if (S.uhren[i] != null) { S.draft[i] = eingabeText((Date.now() - S.uhren[i]) / 1000, "zeit"); delete S.uhren[i]; }
+  else if (S.draft[i] !== DNF) S.uhren[i] = Date.now();
+  save(); renderGame();
+}
+// Laufende Zeiten live in Minuten- und Sekundenfeld zeigen
+let uhrTimer = null;
+function uhrTick() {
+  clearTimeout(uhrTimer);
+  const laufend = Object.keys(S.uhren).filter((i) => uhrFelder[i]);
+  if (!laufend.length || !$("#tab-game").classList.contains("active")) return;
+  for (const i of laufend) {
+    const txt = eingabeText((Date.now() - S.uhren[i]) / 1000, "zeit"), k = txt.indexOf(":");
+    uhrFelder[i][0].value = k < 0 ? "" : txt.slice(0, k); uhrFelder[i][1].value = k < 0 ? txt : txt.slice(k + 1);
+  }
+  uhrTimer = setTimeout(uhrTick, 100);
+}
+function dnfToggle(i) {
+  delete S.uhren[i];
+  S.draft[i] = S.draft[i] === DNF ? "" : DNF;
+  save(); renderGame();
+}
+
+// ---------- Bonus- und Strafpunkte ----------
+function bonusKarte() {
+  const team = el("select", { "aria-label": "Team" }, ...S.teams.map((t) => el("option", { value: t.name }, t.name)));
+  let plus = true;
+  const seg = el("div", { class: "seg" },
+    el("button", { type: "button", "aria-pressed": "true" }, "➕ Bonus"), el("button", { type: "button", "aria-pressed": "false" }, "➖ Strafe"));
+  seg.addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    plus = b === seg.firstChild; seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  });
+  const pkt = el("input", { inputmode: "numeric", placeholder: "Punkte", style: "max-width:110px", "aria-label": "Punkte" });
+  const grund = el("input", { placeholder: "Grund (optional)", "aria-label": "Grund" });
+  const eintragen = () => {
+    const n = Number(pkt.value.trim());
+    if (!Number.isInteger(n) || n < 1) { pkt.classList.add("bad"); toast("Bitte eine ganze Zahl ab 1 eintragen"); return; }
+    addBonus(team.value, plus ? n : -n, grund.value.trim());
+  };
+  return el("div", { class: "card" }, el("h2", {}, "Bonus / Strafe"),
+    el("div", { class: "stack" }, team, seg, el("div", { class: "row" }, pkt, grund, el("button", { type: "button", onclick: eintragen }, "OK"))),
+    S.bonus.length ? el("div", { class: "list" }, ...S.bonus.map((b, i) => el("div", { class: "item" },
+      el("div", { class: "grow" }, el("div", { class: "name " + (b.punkte > 0 ? "bonus-plus" : "bonus-minus") }, `${b.punkte > 0 ? "+" : ""}${b.punkte} Pkt  ${b.team}`),
+        b.grund && el("div", { class: "sub" }, b.grund)),
+      el("button", { class: "icon-btn b-red", "aria-label": "Entfernen", onclick: () => delBonus(i) }, "🗑")))) : null);
+}
+function addBonus(teamName, punkte, grund) {
+  const t = S.teams.find((x) => x.name === teamName); if (!t) return;
+  t.points += punkte; S.bonus.push({ team: teamName, punkte, grund });
+  save(); protokollAktualisieren(); renderGame();
+  toast(`${punkte > 0 ? "+" : ""}${punkte} Pkt für ${teamName}`);
+}
+function delBonus(i) {
+  const b = S.bonus[i];
+  if (!confirm(`${b.punkte > 0 ? "+" : ""}${b.punkte} Pkt für „${b.team}“ wieder entfernen?`)) return;
+  S.bonus.splice(i, 1);
+  const t = S.teams.find((x) => x.name === b.team); if (t) t.points -= b.punkte;
+  save(); protokollAktualisieren(); renderGame();
 }
 // Ergebnis des zuletzt gewerteten Spiels – wird über dem nächsten Spiel angezeigt
 let letztesErgebnis = null;
@@ -682,27 +783,49 @@ function ergebnisKarte() {
   return el("div", { class: "card" }, el("h2", {}, "Ergebnis: " + spiel.name),
     ...zeilen.map((z) => el("div", { class: "score" }, el("span", {}, `${z.name} (${formatWert(z.wert, spiel.art)})`), el("b", {}, `+${z.pkt} Pkt`))));
 }
-function nextStep(zeilen) {
+function nextStep() {
+  // Noch laufende Stoppuhren anhalten
+  if (Object.keys(S.uhren).length) {
+    for (const i of Object.keys(S.uhren)) S.draft[i] = eingabeText((Date.now() - S.uhren[i]) / 1000, "zeit");
+    S.uhren = {}; save(); renderGame();
+  }
   const akt = S.spiele[S.current], werte = [];
   for (let i = 0; i < S.teams.length; i++) {
-    const v = parseWert(zeilen[i].wert(), akt.art);
+    if (S.draft[i] === DNF) { werte.push(null); continue; }
+    const v = parseWert(S.draft[i], akt.art);
     if (v == null) {
       zeilen[i].fehler();
-      toast(`Bitte für „${S.teams[i].name}“ ${akt.art === "zeit" ? "eine Zeit" : "eine Punktzahl"} eintragen!`, 3500); return;
+      toast(`Bitte für „${S.teams[i].name}“ ${akt.art === "zeit" ? "eine Zeit" : "eine Punktzahl"} eintragen oder „nicht geschafft“ antippen!`, 3500); return;
     }
     werte.push(v);
   }
   // Platzierung ergibt sich aus den Ergebnissen: Bester bekommt so viele Punkte, wie es Teams gibt
-  const punkte = punkteVergeben(werte, akt.besser);
-  S.teams.forEach((t, i) => { t.points += punkte[i]; t.history[akt.name] = punkte[i]; (t.werte ||= {})[akt.name] = werte[i]; });
-  letztesErgebnis = { spiel: akt, zeilen: S.teams.map((t, i) => ({ name: t.name, wert: werte[i], pkt: punkte[i] })).sort((a, b) => b.pkt - a.pkt) };
-  S.current++; S.draft = {};
+  const punkte = punkteVergeben(werte, akt.besser), gespeichert = werte.map((v) => (v == null ? DNF : v));
+  S.teams.forEach((t, i) => { t.points += punkte[i]; t.history[akt.name] = punkte[i]; (t.werte ||= {})[akt.name] = gespeichert[i]; });
+  letztesErgebnis = { spiel: akt, zeilen: S.teams.map((t, i) => ({ name: t.name, wert: gespeichert[i], pkt: punkte[i] })).sort((a, b) => b.pkt - a.pkt) };
+  S.current++; S.draft = {}; S.uhren = {};
   if (S.current >= S.spiele.length) S.logFile = null;   // letztes Spiel: frisches Protokoll erzeugen
+  save(); renderGame(); window.scrollTo(0, 0);
+}
+// Letztes gewertetes Spiel wieder öffnen: Punkte zurücknehmen, Ergebnisse bleiben zum Ändern eingetragen
+function korrigieren() {
+  if (S.current === 0) return;
+  const s = S.spiele[S.current - 1];
+  if (!confirm(`„${s.name}“ nochmal bearbeiten?\nDie Punkte dafür werden zurückgenommen, die Ergebnisse bleiben zum Ändern eingetragen.`)) return;
+  S.current--; S.draft = {}; S.uhren = {}; letztesErgebnis = null;
+  S.teams.forEach((t, i) => {
+    t.points -= t.history[s.name] || 0; delete t.history[s.name];
+    const v = t.werte?.[s.name];
+    if (v != null) { S.draft[i] = eingabeText(v, s.art); delete t.werte[s.name]; }
+  });
+  if (S.logFile) {   // Turnier ist doch noch nicht fertig – Protokoll entsteht am Ende neu
+    S.protokolle = S.protokolle.filter((p) => p.name !== S.logFile); S.logFile = null;
+  }
   save(); renderGame(); window.scrollTo(0, 0);
 }
 function resetTournament() {
   if (!confirm("Wirklich alles auf Null setzen?")) return;
-  S.current = 0; S.draft = {}; S.logFile = null; letztesErgebnis = null;
+  S.current = 0; S.draft = {}; S.logFile = null; S.bonus = []; S.uhren = {}; letztesErgebnis = null;
   for (const t of S.teams) { t.points = 0; t.history = {}; t.werte = {}; }
   save(); showTab("setup");
 }
@@ -716,13 +839,25 @@ function renderFinal() {
     el("div", { class: "card" }, el("h2", {}, "Endstand"),
       ...rangliste().map(([p, t]) => el("div", { class: "score" }, el("span", {}, `${p}. ${t.name}`), el("b", {}, `${t.points} Pkt`)))),
     el("button", { class: "b-green", style: "width:100%;margin-bottom:10px", onclick: () => { showTab("logs"); showLog(S.logFile); } }, "📜 PROTOKOLL ANSEHEN"),
+    el("button", { class: "b-slate", style: "width:100%;margin-bottom:14px", onclick: korrigieren }, "↩ LETZTES SPIEL KORRIGIEREN"),
+    bonusKarte(),
     el("button", { style: "width:100%", onclick: resetTournament }, "🔄 NEUES TURNIER STARTEN"));
 }
 
 // ---------- PROTOKOLLE ----------
 const pad = (s, n) => (s + " ".repeat(n)).slice(0, Math.max(n, s.length));
 function createProtocol() {
-  const now = new Date(), d = now.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const now = new Date(), name = "Drinkolympics_" + now.toISOString().slice(0, 16).replace("T", "_") + "_" + randomString(4);
+  S.protokolle.push({ name, datum: now.toISOString(), text: protokollText(now) });
+  S.logFile = name; save();
+}
+// Bonus/Strafe nach Turnierende: das schon gespeicherte Protokoll neu schreiben
+function protokollAktualisieren() {
+  const p = S.protokolle.find((x) => x.name === S.logFile);
+  if (p && S.current >= S.spiele.length) { p.text = protokollText(new Date(p.datum)); save(); }
+}
+function protokollText(now) {
+  const d = now.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
   const tm = now.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
   const lines = [`DRINKOLYMPICS ${now.getFullYear()}`, `${d} ${tm}`, "=".repeat(35), "RANKING:"];
   for (const [p, t] of rangliste()) lines.push(`${p}. ${pad(t.name, 20)} | ${t.points} Pkt`);
@@ -734,9 +869,11 @@ function createProtocol() {
       lines.push(` - ${pad(t.name, 20)}: ${t.history[s.name] || 0} Pkt` + (v != null ? `  (${formatWert(v, s.art)})` : ""));
     });
   }
-  const name = "Drinkolympics_" + now.toISOString().slice(0, 16).replace("T", "_") + "_" + randomString(4);
-  S.protokolle.push({ name, datum: now.toISOString(), text: lines.join("\n") + "\n" });
-  S.logFile = name; save();
+  if (S.bonus.length) {
+    lines.push("", "BONUS / STRAFEN:");
+    for (const b of S.bonus) lines.push(` - ${pad(b.team, 20)}: ${b.punkte > 0 ? "+" : ""}${b.punkte} Pkt` + (b.grund ? `  (${b.grund})` : ""));
+  }
+  return lines.join("\n") + "\n";
 }
 let openLog = null;
 function renderLogs() {
@@ -834,11 +971,44 @@ function openCeremony() {
   setNext(0);
 }
 
+// ---------- Turnier vom PC übernehmen (QR-Code / Link mit #import=...) ----------
+async function handleImport() {
+  if (!location.hash.startsWith("#import=")) return;
+  const code = location.hash.slice(8);
+  history.replaceState(null, "", location.pathname + location.search);
+  try {
+    const b64 = code.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (code.length % 4)) % 4);
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const text = await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate"))).text();
+    const d = JSON.parse(text);
+    if (!Array.isArray(d.teams) || !Array.isArray(d.spiele)) throw new Error("kein Turnier");
+    const info = `${d.spiele.length} Spiele, ${d.teams.length} Teams` + (d.current > 0 ? `, ${d.current} schon gespielt` : "");
+    if ((S.teams.length || S.spiele.length) && !confirm(`Turnier vom PC übernehmen? (${info})\nDer aktuelle Stand auf dem Handy wird ersetzt.`)) return;
+    Object.assign(S, {
+      spiele: d.spiele.map(spielAusDaten), current: d.current || 0, draft: d.draft || {}, bonus: d.bonus || [],
+      uhren: {}, logFile: null,
+      teams: d.teams.map((t) => ({ name: t.name, points: t.points || 0, history: t.history || {}, werte: t.werte || {},
+        songId: t.songId || "", songName: t.songId ? "Spotify-Song" : "" })),
+    });
+    letztesErgebnis = null; save();
+    toast(`Turnier übernommen ✅ (${info})`, 4000);
+  } catch { toast("Der Link vom PC ist ungültig oder unvollständig", 4000); }
+}
+// Songtitel nachladen, die nur als Link vom PC kamen
+async function songNamenNachladen() {
+  if (!spotifyConnected()) return;
+  for (const t of S.teams.filter((t) => t.songId && t.songName === "Spotify-Song")) {
+    try { const r = await api("GET", "/tracks/" + t.songId); if (r.ok) { t.songName = songLabel(await r.json()); save(); renderTeams(); } } catch {}
+  }
+}
+
 // ---------- Start ----------
 (async () => {
   await handleRedirect();
+  await handleImport();
   renderSpotify(); renderWahl(); renderSpiele(); renderSongPicker(); renderTeams();
   if (S.current > 0 || Object.keys(S.draft).length) showTab("game");   // laufendes Turnier direkt zeigen
+  songNamenNachladen();
 })();
 </script>
 </body>
