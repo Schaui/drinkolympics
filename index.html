@@ -701,7 +701,6 @@ function renderGame() {
   g.append(el("div", { class: "discipline" }, "DISZIPLIN: " + akt.name.toUpperCase()),
            el("div", { class: "progress" }, `Spiel ${S.current + 1} von ${S.spiele.length} · ${wertungIcon(akt)}${wertungText(akt)}`),
            el("button", { class: "b-orange", style: "width:100%;margin-bottom:12px", onclick: openCountdown }, "⏳ COUNTDOWN"));
-  if (letztesErgebnis) g.append(ergebnisKarte());
   // Je Team ein Feld für die Punkte bzw. zwei Felder (Minuten und Sekunden) für die Zeit,
   // darunter Stoppuhr (nur bei Zeit) und „nicht geschafft“
   uhrFelder = {};
@@ -805,13 +804,6 @@ function delBonus(i) {
   const t = S.teams.find((x) => x.name === b.team); if (t) t.points -= b.punkte;
   save(); protokollAktualisieren(); renderGame();
 }
-// Ergebnis des zuletzt gewerteten Spiels – wird über dem nächsten Spiel angezeigt
-let letztesErgebnis = null;
-function ergebnisKarte() {
-  const { spiel, zeilen } = letztesErgebnis;
-  return el("div", { class: "card" }, el("h2", {}, "Ergebnis: " + spiel.name),
-    ...zeilen.map((z) => el("div", { class: "score" }, el("span", {}, `${z.name} (${formatWert(z.wert, spiel.art)})`), el("b", {}, `+${z.pkt} Pkt`))));
-}
 function nextStep() {
   // Noch laufende Stoppuhren anhalten
   if (Object.keys(S.uhren).length) {
@@ -831,7 +823,6 @@ function nextStep() {
   // Platzierung ergibt sich aus den Ergebnissen: Bester bekommt so viele Punkte, wie es Teams gibt
   const punkte = punkteVergeben(werte, akt.besser), gespeichert = werte.map((v) => (v == null ? DNF : v));
   S.teams.forEach((t, i) => { t.points += punkte[i]; t.history[akt.name] = punkte[i]; (t.werte ||= {})[akt.name] = gespeichert[i]; });
-  letztesErgebnis = { spiel: akt, zeilen: S.teams.map((t, i) => ({ name: t.name, wert: gespeichert[i], pkt: punkte[i] })).sort((a, b) => b.pkt - a.pkt) };
   S.current++; S.draft = {}; S.uhren = {};
   if (S.current >= S.spiele.length) S.logFile = null;   // letztes Spiel: frisches Protokoll erzeugen
   save(); renderGame(); window.scrollTo(0, 0);
@@ -841,7 +832,7 @@ function korrigieren() {
   if (S.current === 0) return;
   const s = S.spiele[S.current - 1];
   if (!confirm(`„${s.name}“ nochmal bearbeiten?\nDie Punkte dafür werden zurückgenommen, die Ergebnisse bleiben zum Ändern eingetragen.`)) return;
-  S.current--; S.draft = {}; S.uhren = {}; letztesErgebnis = null;
+  S.current--; S.draft = {}; S.uhren = {};
   S.teams.forEach((t, i) => {
     t.points -= t.history[s.name] || 0; delete t.history[s.name];
     const v = t.werte?.[s.name];
@@ -854,7 +845,7 @@ function korrigieren() {
 }
 function resetTournament() {
   if (!confirm("Wirklich alles auf Null setzen?")) return;
-  S.current = 0; S.draft = {}; S.logFile = null; S.bonus = []; S.uhren = {}; letztesErgebnis = null;
+  S.current = 0; S.draft = {}; S.logFile = null; S.bonus = []; S.uhren = {};
   for (const t of S.teams) { t.points = 0; t.history = {}; t.werte = {}; }
   save(); showTab("setup");
 }
@@ -863,7 +854,6 @@ function renderFinal() {
   const g = $("#tab-game");
   g.append(el("div", { class: "finished" }, "TURNIER BEENDET"),
     el("div", { class: "saved" }, "✅ Protokoll gespeichert"),
-    letztesErgebnis && ergebnisKarte(),
     el("button", { class: "big b-orange", onclick: openCeremony }, "⭐ SIEGEREHRUNG ⭐"),
     el("div", { class: "card" }, el("h2", {}, "Endstand"),
       ...rangliste().map(([p, t]) => el("div", { class: "score" }, el("span", {}, `${p}. ${t.name}`), el("b", {}, `${t.points} Pkt`)))),
@@ -1140,7 +1130,7 @@ async function handleImport() {
       teams: d.teams.map((t) => ({ name: t.name, points: t.points || 0, history: t.history || {}, werte: t.werte || {},
         songId: t.songId || "", songName: t.songId ? "Spotify-Song" : "" })),
     });
-    letztesErgebnis = null; save();
+    save();
     toast(`Turnier übernommen ✅ (${info})`, 4000);
   } catch { toast("Der Link vom PC ist ungültig oder unvollständig", 4000); }
 }
