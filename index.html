@@ -271,16 +271,41 @@ async function pickDevice() {
       || list.find((d) => d.is_active) || list.find((d) => d.type === "Smartphone") || list[0]
       || (SP.lastDevice ? { id: SP.lastDevice } : null);
 }
+// Was spielt Spotify gerade? null, wenn kein Gerät aktiv ist.
+async function playerState() {
+  const r = await api("GET", "/me/player");
+  return r.status === 200 ? r.json().catch(() => null) : null;
+}
+// Jeder Start/Stopp erhöht den Zähler, damit eine ältere Kontrolle nicht den falschen Song weiterlaufen lässt
+let playSeq = 0;
 // Startet einen Song von vorne. Liefert "ok", "nicht-verbunden", "kein-geraet" oder "fehler".
 async function playTrack(id) {
   if (!spotifyConnected()) return "nicht-verbunden";
+  const my = ++playSeq;
   try {
     const dev = await pickDevice();
     if (!dev) return "kein-geraet";
     const r = await api("PUT", "/me/player/play?device_id=" + encodeURIComponent(dev.id), { uris: ["spotify:track:" + id], position_ms: 0 });
-    if (r.ok && SP.lastDevice !== dev.id) { SP.lastDevice = dev.id; saveSP(); }
-    return r.ok ? "ok" : r.status === 404 ? "kein-geraet" : "fehler";
+    if (!r.ok) return r.status === 404 ? "kein-geraet" : "fehler";
+    if (SP.lastDevice !== dev.id) { SP.lastDevice = dev.id; saveSP(); }
+    weiterlaufenLassen(id, dev.id, my);
+    return "ok";
   } catch { return "fehler"; }
+}
+// Das iPhone-Spotify im Hintergrund bleibt beim Songwechsel manchmal stehen –
+// darum kurz danach nachsehen und die Wiedergabe notfalls wieder anschieben.
+async function weiterlaufenLassen(id, devId, my) {
+  for (let i = 0; i < 4; i++) {
+    await sleep(1500);
+    if (my !== playSeq) return;
+    try {
+      const st = await playerState();
+      if (my !== playSeq) return;
+      if (st?.is_playing && st.item?.id === id) return;
+      if (st?.item?.id === id) await api("PUT", "/me/player/play?device_id=" + encodeURIComponent(devId));   // nur fortsetzen
+      else await api("PUT", "/me/player/play?device_id=" + encodeURIComponent(devId), { uris: ["spotify:track:" + id], position_ms: 0 });
+    } catch { /* nächster Versuch */ }
+  }
 }
 // Öffnet die Spotify-App, damit sie als Gerät auftaucht. Kommt man zurück, startet der Song automatisch.
 let nachholen = null;
@@ -294,6 +319,12 @@ document.addEventListener("visibilitychange", async () => {
   if (!nachholen) return;
   const id = nachholen; nachholen = null;
   for (let i = 0; i < 5; i++) {   // die Spotify-App braucht nach dem Öffnen kurz, bis sie gemeldet ist
+    // Läuft der Song schon (in Spotify gestartet), nicht nochmal starten – das würde ihn unterbrechen
+    const st = await playerState().catch(() => null);
+    if (st?.is_playing && st.item?.id === id) {
+      if (st.device?.id && SP.lastDevice !== st.device.id) { SP.lastDevice = st.device.id; saveSP(); }
+      toast("▶ Musik läuft"); return;
+    }
     if ((await playTrack(id)) === "ok") { toast("▶ Musik läuft"); return; }
     await sleep(1500);
   }
@@ -302,6 +333,7 @@ document.addEventListener("visibilitychange", async () => {
 const spotifyKnopf = (id) => el("button", { class: "b-spotify", onclick: () => spotifyAppOeffnen(id) }, "📱 SPOTIFY-APP ÖFFNEN");
 async function stopMusic() {
   if (!spotifyConnected()) return;
+  playSeq++;
   try { await api("PUT", "/me/player/pause"); } catch { /* läuft eh nichts */ }
 }
 function musicProblem(res) {
